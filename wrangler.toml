@@ -1,5 +1,9 @@
-# Cloudflare Pages の設定。`npx wrangler pages deploy` を引数なしで実行できるようにしている。
-# プロジェクト名を変えたい場合は name を書き換えてください（Cloudflare 側のプロジェクト名と一致させる）。
+# Cloudflare Workers（静的アセット）の設定。docs/ をそのままサイトのルートとして配信する。
+# Workers Builds（Git 連携）でも `npx wrangler deploy` でも、この設定が出力先の決定に使われる。
 name = "canvas-flow"
 compatibility_date = "2026-09-17"
-pages_build_output_dir = "docs"
+
+[assets]
+directory = "./docs"
+# 見つからない URL は docs/404.html を返す
+not_found_handling = "404-page"

@@ -587,74 +587,78 @@ test/                 コアのユニットテスト（graph, history, serialize
 docs/index.html       ドキュメントサイトの紹介ページ
 docs/api.html         API 仕様書（パッケージに同梱）
 docs/demo.html        CDN から読み込む 1 ファイルのデモ（パッケージに同梱）
-docs/_headers         Cloudflare Pages のレスポンスヘッダ
-docs/_redirects       Cloudflare Pages の短縮 URL（/demo, /api）
+docs/404.html         見つからない URL に返すページ
+docs/_headers         レスポンスヘッダの設定
+docs/_redirects       短縮 URL の設定（/demo, /api）
 docs/vendor/          docs:build で生成するフォールバック（Git 管理外）
 vite.docs.config.js   docs/vendor/canvas-flow.js を作るビルド設定
-wrangler.toml         Cloudflare Pages の設定（出力先 = docs）
+wrangler.toml         Cloudflare Workers の設定（静的アセット = docs）
 ```
 
 公開されるパッケージには `dist/`（ビルド済み ESM + ソースマップ）、`src/`（元のソース）、
 `docs/`（API 仕様書とデモ）、`README.md`、`CHANGELOG.md`、`LICENSE` が含まれます。
 
-## ドキュメントサイト（Cloudflare Pages）
+## ドキュメントサイト（Cloudflare Workers）
 
 `docs/` をそのまま静的サイトとして公開できます。中身は紹介ページ `index.html`、デモ `demo.html`、
-API 仕様書 `api.html` と、CDN に届かないとき用のフォールバック `vendor/canvas-flow.js`
+API 仕様書 `api.html`、`404.html` と、CDN に届かないとき用のフォールバック `vendor/canvas-flow.js`
 （`npm run docs:build` が `lit` まで含めた 1 ファイルとして生成。Git 管理外）です。
 `demo.html` は jsDelivr →`vendor/` → リポジトリの `src/` の順に読み込み先を試すので、npm 公開前でもデモが動きます。
+
+配信は Cloudflare Workers の静的アセット機能を使います。`wrangler.toml` の `[assets] directory = "./docs"` が
+公開するディレクトリで、Worker のスクリプトは無し（アセットのみ）です。
+Cloudflare は「Start new projects with Workers.」として新規プロジェクトを Workers に寄せており、
+ダッシュボードから Pages プロジェクトを新規作成する入口は現在ありません。
 
 まずローカルで確認します。
 
 ```bash
 npm run docs:build     # docs/vendor/canvas-flow.js を生成
-npm run docs:preview   # docs/ を静的配信して表示を確認
+npm run docs:preview   # docs/ をそのまま配信して表示を確認
 ```
 
 ### 方法 A: wrangler で直接アップロード
 
 ```bash
 npx wrangler login     # 初回のみ（ブラウザで認証）
-npm run deploy:docs    # docs:build → wrangler pages deploy docs
+npm run deploy:docs    # docs:build → wrangler deploy
 ```
 
-プロジェクトが無ければ初回に作成するか聞かれます。プロジェクト名は `wrangler.toml` の `name`（`canvas-flow`）です。
-公開 URL は `https://canvas-flow.pages.dev`（プロジェクト名 + `.pages.dev`）になります。
+公開 URL は `https://canvas-flow.<アカウントのサブドメイン>.workers.dev` です。
 
-### 方法 B: GitHub 連携（push で自動デプロイ）
+### 方法 B: Git 連携（push で自動デプロイ）
 
-Cloudflare ダッシュボードの Workers & Pages → Create → Pages → Connect to Git でこのリポジトリを選び、次のように設定します。
+Cloudflare ダッシュボードの Workers & Pages → Create application → Workers の「リポジトリをインポート」から
+このリポジトリを選び、次のように設定します。
 
 | 項目 | 値 |
 | --- | --- |
-| フレームワークプリセット | None |
+| プロジェクト名 | `canvas-flow` |
+| 本番ブランチ | `main` |
 | ビルドコマンド | `npm run docs:build` |
-| ビルド出力ディレクトリ | `docs` |
-| ルートディレクトリ | （空欄のまま） |
+| デプロイコマンド | `npx wrangler deploy` |
+| ルートディレクトリ | 空欄のまま |
 
-これらの入力欄は Connect to Git の「Set up builds and deployments（ビルドとデプロイの設定）」ステップにあります。
-見つからないときは次を確認してください。
-
-- **ルートディレクトリ**は「Root directory (advanced)」という折りたたみの中の `Path` です。このリポジトリでは空欄のままで構いません
-- **ビルド出力ディレクトリ**が読み取り専用・非表示になっている場合は、`wrangler.toml` の `pages_build_output_dir` が設定の出どころになっているためです
-  （[Cloudflare のドキュメント](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)いわく "This file becomes the source of truth. You will be able to see, but not edit, the same fields when you log into the Cloudflare dashboard."）。
-  その場合はビルドコマンドだけ設定すれば出力先は `docs` になります。ダッシュボードで編集したいときは `wrangler.toml` から
-  `pages_build_output_dir` の行を消してください
-- 入力欄が一切出てこない場合は、Pages ではなく Workers の「リポジトリをインポート」フローに入っている可能性があります。
-  Workers & Pages → Create application →**Pages タブ**→ Connect to Git から進めてください
-- 作成後に変更するときは、プロジェクト → Settings → Builds & deployments → Build configurations の Edit です
-
-ビルドが `npm error Missing script: "docs:build"` で失敗する場合は、`package.json` や `vite.docs.config.js` が
-まだ push されていません（Cloudflare はリモートのリポジトリを clone してビルドします）。
-なお Cloudflare は依存関係を自分で `npm clean-install` してからビルドコマンドを実行するので、ビルドコマンド側で
-`npm ci` を重ねる必要はありません。ビルド環境の npm は install スクリプトを既定でブロックするため、
-`package.json` に `"allowScripts": { "esbuild": true }` を入れて esbuild（Vite が使う）のインストールを許可しています。
-
-`wrangler.toml` に `pages_build_output_dir = "docs"` を書いてあるので、出力先は自動で認識されます。
+公開するディレクトリはダッシュボードではなく `wrangler.toml` の `[assets] directory` で決まります。
 以後 `main` への push ごとに本番デプロイ、それ以外のブランチはプレビューデプロイになります。
+独自ドメインを使う場合はプロジェクトの Settings → Domains & Routes から追加してください。
 
 `docs/_headers`（セキュリティヘッダとキャッシュ制御）と `docs/_redirects`（`/demo`、`/api` の短縮 URL）は
-どちらの方法でも Cloudflare 側が解釈します。独自ドメインを使う場合は Pages プロジェクトの Custom domains から追加してください。
+Workers の静的アセットでもそのまま解釈されます。存在しない URL には `docs/404.html` を返します
+（`not_found_handling = "404-page"`）。
+
+### つまずいたときは
+
+- `npm error Missing script: "docs:build"` → `package.json` や `vite.docs.config.js` がまだ push されていません。
+  Cloudflare はリモートのリポジトリを clone してビルドします
+- `Missing entry-point to Worker script or to assets directory` → `wrangler.toml` の `[assets] directory` が
+  読めていません。`pages_build_output_dir`（Pages 用の設定）が残っていると Pages プロジェクト扱いになり、このエラーになります
+- ビルドコマンドに `npm ci` を重ねる必要はありません。Cloudflare が先に `npm clean-install` を実行します
+- ビルド環境の npm は install スクリプトを既定でブロックするため、`package.json` に
+  `"allowScripts": { "esbuild": true }` を入れて esbuild（Vite が使う）のインストールを許可しています
+- どうしても `*.pages.dev` で公開したい場合は、Pages 自体はまだ使えるので CLI から作れます。
+  `npx wrangler pages project create canvas-flow --production-branch main` のあと
+  `npx wrangler pages deploy docs`（この場合 `wrangler.toml` の `[assets]` は使われません）
 
 ## リリース手順（メンテナ向け）
 
