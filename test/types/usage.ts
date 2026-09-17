@@ -306,6 +306,7 @@ editor.setTheme({ nodes: { fill: '#fff' } });
 editor.setFocusMode('everything');
 // @ts-expect-error 不正な向き
 graph.connectedTo(['n1'], { direction: 'sideways' });
+
 // @ts-expect-error childs の中身はノードの形でなければならない
 graph.addNode({ x: 0, y: 0, childs: ['child'] });
 // @ts-expect-error parentId は string か null
