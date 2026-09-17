@@ -45,7 +45,9 @@
   "files": [
     "dist",
     "src",
+    "docs/index.html",
     "docs/api.html",
+    "docs/demo.html",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -61,6 +63,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "docs:build": "vite build --config vite.docs.config.js",
+    "docs:preview": "npx --yes serve docs",
+    "deploy:docs": "npm run docs:build && npx --yes wrangler pages deploy docs",
     "prepublishOnly": "npm test",
     "prepack": "npm run build",
     "release:check": "npm test && npm run build && npm pack --dry-run"

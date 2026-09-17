@@ -100,11 +100,12 @@
 <body>
 <div class="layout">
 <nav class="side" id="nav">
-  <div class="brand">canvas-flow</div>
+  <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
   <div class="version">NodeEditor API 仕様書 · v0.1.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
+    <li><a href="demo.html">デモ（CDN 版）</a></li>
     <li><a href="#overview">概要</a></li>
     <li><a href="#quickstart">導入</a></li>
     <li><a href="#terms">用語と座標系</a></li>
@@ -147,6 +148,12 @@
 <main>
 <h1>NodeEditor API 仕様書</h1>
 <p class="lead">canvas-flow のコアクラス <code>NodeEditor</code>（フレームワーク非依存）のリファレンスです。Lit 版 <code>&lt;canvas-flow-editor&gt;</code> は <code>el.editor</code> でこのインスタンスを公開しており、主要メソッドを委譲しています。</p>
+<p class="toc-top">
+  <a href="./">トップ</a>
+  <a href="demo.html">▶ 動くデモを開く</a>
+  <a href="https://github.com/hidemikimura/canvas-flow" target="_blank" rel="noopener">GitHub</a>
+  <a href="https://www.npmjs.com/package/@hidemikimura/canvas-flow" target="_blank" rel="noopener">npm</a>
+</p>
 
 <h2 id="overview">概要</h2>
 <p><code>NodeEditor</code> は <code>&lt;canvas&gt;</code> 要素を受け取り、Canvas 2D でノード・コネクタの描画と、ポインタ／ホイール／キーボード／タッチ操作、選択・編集コマンド、Undo/Redo、JSON 入出力を一括して引き受けます。データは内部の <a href="#graph"><code>Graph</code></a>（<code>editor.graph</code>）が保持し、描画・ヒットテストは空間インデックスにより表示範囲内の要素だけを処理するため、10,000 ノード規模でも軽量に動作します。</p>
@@ -156,6 +163,7 @@
 </div>
 
 <h2 id="quickstart">導入</h2>
+<div class="note"><strong>まず触ってみる</strong><br />同じフォルダの <a href="demo.html">demo.html</a> は、jsDelivr の CDN から <code>&lt;canvas-flow-editor&gt;</code> を読み込むだけの 1 ファイルのデモです。ビルド不要でブラウザから開けます（CDN に届かない環境では同梱の <code>../src/index.js</code> に自動でフォールバックします）。</div>
 <pre><code>import { NodeEditor } from '@hidemikimura/canvas-flow/core';   // または '@hidemikimura/canvas-flow'
 
 const canvas   = document.querySelector('canvas.main');
@@ -713,7 +721,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.1.0 · この仕様書は <code>docs/api.html</code> として同梱されています。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.1.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

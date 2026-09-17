@@ -23,7 +23,7 @@
 - ノードの移動単位（グリッド吸着）
 - テーマ・ノード種別・個別スタイル・描画関数の差し替え
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
-- API 仕様書 `docs/api.html`
+- API 仕様書 `docs/api.html` と CDN 版デモ `docs/demo.html`
 
 [Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/hidemikimura/canvas-flow/releases/tag/v0.1.0

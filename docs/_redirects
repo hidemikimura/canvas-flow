@@ -1,0 +1,4 @@
+# 短い URL（Cloudflare Pages の _redirects）
+/demo    /demo.html    301
+/api     /api.html     301
+/docs/*  /:splat       301

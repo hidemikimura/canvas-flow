@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>canvas-flow — Canvas 2D の高速ノードエディタライブラリ</title>
+<meta name="description" content="Canvas 2D ベースの高速ノードエディタライブラリ。フレームワーク非依存のコアと Lit Web Component で構成され、10,000 ノード規模でも軽快に動きます。" />
+<style>
+  :root {
+    --bg: #ffffff; --bg-soft: #f6f7f9; --fg: #1f2933; --fg-muted: #5b6673; --line: #e1e5ea;
+    --accent: #2563eb; --accent-soft: #dbeafe; --code-bg: #f1f3f6; --code-fg: #1e293b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141a; --bg-soft: #161c24; --fg: #e6ebf1; --fg-muted: #98a4b3; --line: #2a333f;
+      --accent: #60a5fa; --accent-soft: #1e3a5f; --code-bg: #1b222c; --code-fg: #e6ebf1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.8 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); color: var(--code-fg); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 14px 16px; border-radius: 10px; overflow: auto; font-size: 13px; line-height: 1.65; margin: 0 0 14px; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px; }
+
+  header { border-bottom: 1px solid var(--line); background: var(--bg-soft); padding: 56px 0 44px; }
+  header h1 { font-size: 34px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  header p.lead { font-size: 16px; color: var(--fg-muted); margin: 0 0 22px; max-width: 640px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn {
+    display: inline-block; padding: 9px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  .btn:hover { text-decoration: none; border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { opacity: .9; }
+  .meta { margin: 18px 0 0; font-size: 13px; color: var(--fg-muted); }
+
+  section { padding: 40px 0 8px; }
+  h2 { font-size: 19px; margin: 0 0 14px; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+  .features li { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--bg-soft); }
+  .features strong { display: block; font-size: 14px; margin-bottom: 4px; }
+  .features span { font-size: 13px; color: var(--fg-muted); line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 0 0 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--fg-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  td:first-child { white-space: nowrap; }
+  .note { background: var(--bg-soft); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 13.5px; margin: 0 0 14px; }
+  footer { margin-top: 48px; border-top: 1px solid var(--line); background: var(--bg-soft); padding: 22px 0 40px; font-size: 13px; color: var(--fg-muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>canvas-flow</h1>
+    <p class="lead">
+      Canvas 2D ベースの高速ノードエディタライブラリです。フレームワーク非依存のコア <code>NodeEditor</code> と、
+      それを包む Lit Web Component <code>&lt;canvas-flow-editor&gt;</code> で構成されていて、10,000 ノード規模でも軽快に動きます。
+    </p>
+    <div class="btns">
+      <a class="btn primary" href="demo.html">デモを開く</a>
+      <a class="btn" href="api.html">API 仕様書</a>
+      <a class="btn" href="https://github.com/hidemikimura/canvas-flow" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn" href="https://www.npmjs.com/package/@hidemikimura/canvas-flow" target="_blank" rel="noopener">npm</a>
+    </div>
+    <p class="meta">v0.1.0 · MIT License · ES Modules · 依存は lit（Web Component 版のみ）</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>できること</h2>
+  <ul class="features">
+    <li><strong>10,000 ノードでも軽量</strong><span>空間インデックスで表示範囲だけを描画・ヒットテスト。縮小時は文字やポートを省いた簡易描画に切り替わります。</span></li>
+    <li><strong>ノード内の項目とポート</strong><span>ノードに行（項目）を持たせ、項目ごとに入力／出力ポートを付けてコネクタで接続できます。接続数の上限も設定可。</span></li>
+    <li><strong>コネクタの形を選べる</strong><span>曲線（ベジェ）／直線／直角の階段状から、全体の既定とコネクタ単位の両方で指定できます。</span></li>
+    <li><strong>編集操作ひと通り</strong><span>選択・範囲選択・ドラッグ移動・複製・コピー＆ペースト・削除・インライン編集・リサイズ・Undo/Redo。</span></li>
+    <li><strong>自動整列と検索</strong><span>階層レイアウトでコネクタが左から右に流れるよう並べ直し。ノード検索と該当ノードへのセンタリングも内蔵。</span></li>
+    <li><strong>JSON で保存・読み込み</strong><span>グラフ全体の入出力に加えて、複数ノードの JSON を指定位置に相対座標で差し込めます。</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>インストール</h2>
+<pre><code>npm install @hidemikimura/canvas-flow lit</code></pre>
+  <table>
+    <tr><th>import</th><th>内容</th><th>lit</th></tr>
+    <tr><td><code>@hidemikimura/canvas-flow</code></td><td>コア + Web Component（読み込むと <code>&lt;canvas-flow-editor&gt;</code> が登録される）</td><td>必要</td></tr>
+    <tr><td><code>@hidemikimura/canvas-flow/core</code></td><td><code>NodeEditor</code> などコアのみ（フレームワーク非依存）</td><td>不要</td></tr>
+    <tr><td><code>@hidemikimura/canvas-flow/lit</code></td><td>Web Component のみ</td><td>必要</td></tr>
+  </table>
+  <div class="note">
+    npm には既存の <code>canvasflow</code> パッケージがあり、記号を無視した同名判定で <code>canvas-flow</code> を取得できないため、
+    スコープ付きの名前で公開しています。カスタム要素名と JSON の <code>format</code> は <code>canvas-flow</code> のままです。
+  </div>
+</section>
+
+<section>
+  <h2>使い方</h2>
+  <p style="margin:0 0 10px;color:var(--fg-muted);font-size:13.5px">ビルドなしで試すなら、CDN から読み込むだけで動きます（<a href="demo.html">このデモ</a>と同じ構成です）。</p>
+<pre><code>&lt;script type="module"&gt;
+  import 'https://cdn.jsdelivr.net/npm/@hidemikimura/canvas-flow/+esm';
+&lt;/script&gt;
+
+&lt;canvas-flow-editor id="editor" minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;
+
+&lt;script type="module"&gt;
+  const el = document.getElementById('editor');
+  el.addEventListener('ready', () =&gt; {
+    el.load({
+      nodes: [
+        { id: 'a', title: 'Source', x: 40,  y: 40,  output: true,
+          items: [{ id: 'v', label: 'value', value: '10', output: true }] },
+        { id: 'b', title: 'Sink',   x: 360, y: 120, input: true,
+          items: [{ id: 'in', label: 'in', input: true }] },
+      ],
+      edges: [{ source: 'a', sourcePort: 'item:v:out', target: 'b', targetPort: 'item:in:in' }],
+    });
+  });
+  el.addEventListener('item-click', (e) =&gt; console.log(e.detail.node.title, e.detail.item.label));
+&lt;/script&gt;</code></pre>
+  <p style="margin:0;color:var(--fg-muted);font-size:13.5px">
+    コアだけを使う場合は <code>new NodeEditor(canvas, options)</code> に <code>&lt;canvas&gt;</code> を渡します。
+    メソッド・イベント・データモデルの詳細は <a href="api.html">API 仕様書</a>を参照してください。
+  </p>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    MIT © Hidemi Kimura ·
+    <a href="demo.html">デモ</a> ·
+    <a href="api.html">API 仕様書</a> ·
+    <a href="https://github.com/hidemikimura/canvas-flow" target="_blank" rel="noopener">GitHub</a> ·
+    <a href="https://www.npmjs.com/package/@hidemikimura/canvas-flow" target="_blank" rel="noopener">npm</a>
+  </div>
+</footer>
+
+</body>
+</html>

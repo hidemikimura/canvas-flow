@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>デモ — canvas-flow</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f7f9;
+    --fg: #1f2933;
+    --fg-muted: #5b6673;
+    --line: #e1e5ea;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --code-bg: #f1f3f6;
+    --code-fg: #1e293b;
+    --ok-bg: #dcfce7; --ok-fg: #15803d;
+    --warn-bg: #fef3c7; --warn-fg: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f141a; --bg-soft: #161c24; --fg: #e6ebf1; --fg-muted: #98a4b3; --line: #2a333f;
+      --accent: #60a5fa; --accent-soft: #1e3a5f; --code-bg: #1b222c; --code-fg: #e6ebf1;
+      --ok-bg: #14352a; --ok-fg: #86efac; --warn-bg: #3b2a10; --warn-fg: #fcd34d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); color: var(--code-fg); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 12px 14px; border-radius: 8px; overflow: auto; font-size: 12.5px; line-height: 1.6; margin: 0; }
+
+  header {
+    padding: 14px 20px 12px; border-bottom: 1px solid var(--line); background: var(--bg-soft);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+  }
+  header h1 { font-size: 17px; margin: 0; }
+  header .lead { color: var(--fg-muted); font-size: 13px; margin: 0; flex: 1 1 260px; }
+  header nav { display: flex; gap: 12px; font-size: 13px; }
+
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+    padding: 10px 20px; border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .bar label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .bar select, .bar input[type="number"] {
+    font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--fg);
+  }
+  .bar button {
+    font: inherit; font-size: 13px; padding: 4px 12px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer;
+  }
+  .bar button:hover { background: var(--accent-soft); border-color: var(--accent); }
+  .chip { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn-fg); }
+
+  .stage { flex: 1 1 auto; min-height: 520px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+  canvas-flow-editor { min-height: 0; min-width: 0; }
+  aside {
+    border-left: 1px solid var(--line); background: var(--bg-soft);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  aside h2 {
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
+    margin: 0; padding: 12px 14px 6px; display: flex; justify-content: space-between; align-items: center;
+  }
+  aside h2 button { font: inherit; font-size: 11px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--fg-muted); cursor: pointer; text-transform: none; letter-spacing: 0; }
+  #stats { padding: 0 14px 8px; color: var(--fg-muted); font-size: 12px; }
+  #log { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0 14px 14px; list-style: none; font-size: 12px; line-height: 1.55; }
+  #log li { padding: 3px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+  #log .t { color: var(--fg-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; flex: none; }
+  #log .n { color: var(--accent); font-weight: 600; flex: none; }
+  #log .d { color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 14px 20px 22px; background: var(--bg-soft); }
+  footer .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  footer p { margin: 0 0 8px; font-size: 13px; color: var(--fg-muted); }
+  footer h3 { font-size: 12px; margin: 0 0 6px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-muted); }
+  kbd { font: inherit; font-size: 11.5px; background: var(--code-bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+
+  @media (max-width: 900px) {
+    .stage { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 1fr) 200px; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+    footer .cols { grid-template-columns: 1fr; }
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "lit": "https://cdn.jsdelivr.net/npm/lit@3/+esm"
+  }
+}
+</script>
+</head>
+<body>
+
+<header>
+  <h1>canvas-flow デモ</h1>
+  <p class="lead">CDN から読み込んだ <code>&lt;canvas-flow-editor&gt;</code> をそのまま動かしています。<span id="source" class="chip warn">読み込み中…</span></p>
+  <nav>
+    <a href="./">トップ</a>
+    <a href="api.html">API 仕様書</a>
+    <a href="https://github.com/hidemikimura/canvas-flow" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://www.npmjs.com/package/@hidemikimura/canvas-flow" target="_blank" rel="noopener">npm</a>
+  </nav>
+</header>
+
+<div class="bar">
+  <label>ノード数
+    <select id="count">
+      <option value="24">24</option>
+      <option value="200" selected>200</option>
+      <option value="2000">2,000</option>
+      <option value="10000">10,000</option>
+    </select>
+  </label>
+  <button id="regen">再生成</button>
+  <label>コネクタ
+    <select id="edge-type">
+      <option value="bezier">曲線</option>
+      <option value="straight">直線</option>
+      <option value="step">直角</option>
+    </select>
+  </label>
+  <label>移動単位
+    <select id="snap">
+      <option value="0">なし</option>
+      <option value="8">8px</option>
+      <option value="16">16px</option>
+      <option value="32">32px（グリッド）</option>
+    </select>
+  </label>
+  <label>空白ドラッグ
+    <select id="dragmode">
+      <option value="pan">パン</option>
+      <option value="select">範囲選択</option>
+    </select>
+  </label>
+  <button id="add">ノード追加</button>
+  <button id="insert">テンプレート挿入</button>
+  <label><input type="checkbox" id="dark" /> ダークテーマ</label>
+  <label><input type="checkbox" id="readonly" /> 読み取り専用</label>
+</div>
+
+<div class="stage">
+  <canvas-flow-editor id="editor" minimap edge-delete-icon></canvas-flow-editor>
+  <aside>
+    <h2>イベントログ <button id="clear">消去</button></h2>
+    <div id="stats">—</div>
+    <ul id="log"></ul>
+  </aside>
+</div>
+
+<footer>
+  <div class="cols">
+    <div>
+      <h3>このページの読み込み方</h3>
+      <pre><code>&lt;script type="module"&gt;
+  import 'https://cdn.jsdelivr.net/npm/@hidemikimura/canvas-flow/+esm';
+&lt;/script&gt;
+
+&lt;canvas-flow-editor minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;</code></pre>
+      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.1.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
+    </div>
+    <div>
+      <h3>操作</h3>
+      <p>
+        ホイール: ズーム / <kbd>Shift</kbd>+ホイール: パン / <kbd>Space</kbd>+ドラッグ: パン /
+        ポートをドラッグ: コネクタ作成 / ダブルクリック: タイトル・項目の編集 /
+        <kbd>Ctrl</kbd>+<kbd>D</kbd>: 複製 / <kbd>Delete</kbd>: 削除 /
+        <kbd>Shift</kbd>+<kbd>Delete</kbd>: 選択範囲のコネクタだけ削除 /
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd>: Undo / 矢印キー: 微移動 /
+        コネクタにマウスを乗せると中央に削除アイコン
+      </p>
+      <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
+    </div>
+  </div>
+</footer>
+
+<script type="module">
+  // 読み込み元は CDN → 同梱の vendor（docs:build で dist をコピー）→ リポジトリの src の順に試す
+  const SOURCES = [
+    { label: 'jsDelivr（CDN）から読み込み済み', url: 'https://cdn.jsdelivr.net/npm/@hidemikimura/canvas-flow/+esm', ok: true },
+    { label: '同梱の vendor/ から読み込み（CDN に届かないため）', url: './vendor/canvas-flow.js', ok: false },
+    { label: 'リポジトリの ../src/ から読み込み（CDN に届かないため）', url: '../src/index.js', ok: false },
+  ];
+  const badge = document.getElementById('source');
+  let loaded = null;
+  for (const src of SOURCES) {
+    try {
+      await import(src.url);
+      loaded = src;
+      break;
+    } catch (err) {
+      console.warn(`${src.url} からの読み込みに失敗しました`, err);
+    }
+  }
+  if (!loaded) {
+    badge.textContent = 'ライブラリを読み込めませんでした';
+    badge.className = 'chip warn';
+    throw new Error('canvas-flow を読み込めませんでした');
+  }
+  badge.textContent = loaded.label;
+  badge.className = 'chip ' + (loaded.ok ? 'ok' : 'warn');
+
+  const el = document.getElementById('editor');
+  const logEl = document.getElementById('log');
+  const statsEl = document.getElementById('stats');
+  const $ = (id) => document.getElementById(id);
+
+  const TYPES = ['input', 'process', 'output', 'note'];
+  // ノード種別ごとの色。テーマ切り替えに合わせて差し替える
+  const LIGHT_TYPES = {
+    input: { style: { headerFill: '#dbeafe', stroke: '#93c5fd' } },
+    process: { style: { headerFill: '#ede9fe', stroke: '#c4b5fd' } },
+    output: { style: { headerFill: '#dcfce7', stroke: '#86efac' } },
+    note: { style: { headerFill: '#fef3c7', fill: '#fffbeb', stroke: '#fcd34d' } },
+  };
+  const DARK_TYPES = {
+    input: { style: { headerFill: '#1e3a5f', stroke: '#3b6ea5' } },
+    process: { style: { headerFill: '#2a1f4d', stroke: '#5b4a9c' } },
+    output: { style: { headerFill: '#14352a', stroke: '#2f6b52' } },
+    note: { style: { headerFill: '#3b2a10', fill: '#221c10', stroke: '#8a6420' } },
+  };
+
+  /** グリッド状に n 個のノードと、隣接ノード間のコネクタを作る */
+  function generate(n) {
+    const cols = Math.ceil(Math.sqrt(n));
+    const nodes = [];
+    const edges = [];
+    for (let i = 0; i < n; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const type = TYPES[i % TYPES.length];
+      const items = [];
+      for (let k = 0; k < 1 + (i % 3); k++) {
+        items.push({
+          id: `p${k}`,
+          label: ['value', 'threshold', 'mode'][k],
+          value: k === 0 ? String((i * 7) % 100) : k === 1 ? '0.5' : 'auto',
+          input: k === 0 ? { max: 1 } : k === 1 ? 2 : true,   // value は 1 本まで（満杯で橙）、threshold は 2 本まで
+          output: true,
+        });
+      }
+      nodes.push({
+        id: `n${i}`, type, title: `${type} #${i}`,
+        x: col * 280, y: row * 160 + (col % 2) * 20,
+        input: true,
+        output: type === 'note' ? { max: 3, visible: false } : { max: 3 },  // note は端子を隠す
+        items,
+      });
+      if (col > 0) edges.push({ id: `e${i}a`, source: `n${i - 1}`, sourcePort: 'item:p0:out', target: `n${i}`, targetPort: 'item:p0:in' });
+      if (row > 0 && i % 3 === 0) edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+    }
+    return { nodes, edges };
+  }
+
+  /** 「テンプレート挿入」で使う JSON。座標は挿入位置からの相対（anchor: 'origin'） */
+  const TEMPLATE = {
+    nodes: [
+      { id: 't1', type: 'input', title: 'template in', x: 0, y: 0, output: true, items: [{ id: 'a', label: 'value', value: '1', output: true }] },
+      { id: 't2', type: 'process', title: 'template calc', x: 300, y: 60, input: true, output: true, items: [{ id: 'b', label: 'value', value: '2', input: true, output: true }] },
+      { id: 't3', type: 'output', title: 'template out', x: 600, y: 0, input: true, items: [{ id: 'c', label: 'value', value: '3', input: true }] },
+    ],
+    edges: [
+      { source: 't1', sourcePort: 'item:a:out', target: 't2', targetPort: 'item:b:in' },
+      { source: 't2', sourcePort: 'item:b:out', target: 't3', targetPort: 'item:c:in' },
+    ],
+  };
+
+  let logCount = 0;
+  function log(name, detail) {
+    const li = document.createElement('li');
+    const now = new Date();
+    const t = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    li.innerHTML = '<span class="t"></span><span class="n"></span><span class="d"></span>';
+    li.children[0].textContent = t;
+    li.children[1].textContent = name;
+    li.children[2].textContent = detail ?? '';
+    logEl.prepend(li);
+    if (++logCount > 200) { logEl.lastElementChild?.remove(); logCount--; }
+  }
+
+  function regen() {
+    const n = Number($('count').value);
+    const t0 = performance.now();
+    el.load(generate(n));
+    const ms = performance.now() - t0;
+    el.editor.viewport.reset();
+    el.editor.viewport.panBy(40, 40);
+    el.editor.requestRender();
+    log('load', `${n} ノードを ${ms.toFixed(1)}ms で生成`);
+  }
+
+  const DARK = {
+    background: '#0f141a',
+    grid: { color: '#1e2732', majorColor: '#2c3947' },
+    node: { fill: '#1b222c', headerFill: '#243040', stroke: '#3a4757', titleColor: '#e6ebf1', textColor: '#c3cdd9', itemSeparator: '#2a333f', shadow: 'rgba(0,0,0,0.5)' },
+    port: { fill: '#0f141a', stroke: '#7c8794' },
+    edge: { stroke: '#6b7684' },
+    minimap: { background: 'rgba(15,20,26,0.9)', border: '#2a333f', node: '#43536a' },
+  };
+  // setTheme は部分マージなので、明るいテーマへ戻すときは同じキーを既定値で上書きし直す
+  const LIGHT = {
+    background: '#f6f7f9',
+    grid: { color: '#e0e3e8', majorColor: '#cfd4db' },
+    node: { fill: '#ffffff', headerFill: '#eef1f5', stroke: '#c9ced6', titleColor: '#1f2933', textColor: '#3b4652', itemSeparator: '#eef1f5', shadow: 'rgba(0,0,0,0.08)' },
+    port: { fill: '#ffffff', stroke: '#64748b' },
+    edge: { stroke: '#7c8794' },
+    minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8' },
+  };
+  function applyTheme(dark) {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    el.theme = dark ? DARK : LIGHT;
+    el.nodeTypes = dark ? DARK_TYPES : LIGHT_TYPES;
+  }
+  $('dark').checked = matchMedia('(prefers-color-scheme: dark)').matches;   // 初期値は OS の設定に合わせる
+  $('dark').addEventListener('change', (e) => applyTheme(e.target.checked));
+
+  // ready は動的 import の直後に発火済みのことがあるので、両方に備える
+  const start = () => { applyTheme($('dark').checked); regen(); };
+  await el.updateComplete;
+  if (el.editor) start();
+  else el.addEventListener('ready', start, { once: true });
+
+  // --- コントロール ---
+  $('regen').addEventListener('click', regen);
+  $('count').addEventListener('change', regen);
+  $('edge-type').addEventListener('change', (e) => el.setSelectedEdgeType(e.target.value));
+  $('snap').addEventListener('change', (e) => { el.moveSnap = Number(e.target.value); });
+  $('dragmode').addEventListener('change', (e) => { el.dragMode = e.target.value; });
+  $('add').addEventListener('click', () => el.addNodeAtCenter({ type: 'process', title: '新しいノード', input: true, output: true, items: [{ id: 'p0', label: 'value', value: '0', input: true, output: true }] }));
+  $('insert').addEventListener('click', () => el.insertJSON(TEMPLATE, { anchor: 'origin' }));
+  $('readonly').addEventListener('change', (e) => { el.readOnly = e.target.checked; });
+  $('clear').addEventListener('click', () => { logEl.textContent = ''; logCount = 0; });
+
+  // --- イベントの中継表示 ---
+  const brief = (d) => {
+    if (!d) return '';
+    if (d.node) return d.item ? `${d.node.title} / ${d.item.label}` : d.node.title;
+    if (d.edge) return `${d.edge.source} → ${d.edge.target}`;
+    if (d.nodes && d.edges) return `nodes ${d.nodes.length ?? d.nodes} / edges ${d.edges.length ?? d.edges}`;
+    if (d.ids) return `${d.ids.length} 本`;
+    if (d.type) return d.type;
+    if (typeof d.x === 'number') return `(${Math.round(d.x)}, ${Math.round(d.y)})`;
+    return '';
+  };
+  for (const name of [
+    'node-click', 'item-click', 'edge-click', 'canvas-click',
+    'edge-add', 'edge-remove', 'edges-delete', 'edge-delete-icon', 'connect-rejected',
+    'node-add', 'node-remove', 'node-resize-end', 'nodes-move-end',
+    'edge-type-change', 'layout', 'insert', 'import', 'export', 'import-error',
+  ]) {
+    el.addEventListener(name, (e) => log(name, brief(e.detail)));
+  }
+  el.addEventListener('selection-change', (e) => log('selection-change', `ノード ${e.detail.nodes.length} / コネクタ ${e.detail.edges.length}`));
+  el.addEventListener('render', (e) => {
+    const s = e.detail;
+    statsEl.textContent = `描画 ${s.ms.toFixed(1)}ms · 表示中 ${s.nodes} ノード / ${s.edges} コネクタ · 全体 ${el.editor.graph.nodes.size} / ${el.editor.graph.edges.size} · ${Math.round(el.editor.viewport.zoom * 100)}%`;
+  });
+</script>
+</body>
+</html>

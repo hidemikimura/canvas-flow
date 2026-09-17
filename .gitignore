@@ -8,3 +8,7 @@ coverage
 .idea/
 .vscode/
 Claude outputs/
+
+# docs/ を静的サイトとして公開するときに dist から生成するフォールバック
+docs/vendor
+.wrangler

@@ -1,0 +1,5 @@
+# Cloudflare Pages の設定。`npx wrangler pages deploy` を引数なしで実行できるようにしている。
+# プロジェクト名を変えたい場合は name を書き換えてください（Cloudflare 側のプロジェクト名と一致させる）。
+name = "canvas-flow"
+compatibility_date = "2026-09-17"
+pages_build_output_dir = "docs"

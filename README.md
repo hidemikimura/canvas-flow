@@ -22,6 +22,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - ミニマップ（ドラッグで表示範囲を移動）
 - テーマ／ノード種別／ノード単位／コネクタ単位での見た目変更、描画関数の差し替え
 
+ブラウザで触れるデモは [`docs/demo.html`](docs/demo.html) です（CDN から読み込むだけの 1 ファイル。ビルド不要）。
 API の詳細は同梱の仕様書 [`docs/api.html`](docs/api.html) を参照してください（パッケージにも含まれているので、`node_modules/@hidemikimura/canvas-flow/docs/api.html` をブラウザで開くだけで読めます）。
 
 ## インストール
@@ -583,11 +584,71 @@ src/
   index.js
 demo/main.js          10,000 ノードのデモ
 test/                 コアのユニットテスト（graph, history, serializer, limits, layout, port-visibility, edge-type）
+docs/index.html       ドキュメントサイトの紹介ページ
 docs/api.html         API 仕様書（パッケージに同梱）
+docs/demo.html        CDN から読み込む 1 ファイルのデモ（パッケージに同梱）
+docs/_headers         Cloudflare Pages のレスポンスヘッダ
+docs/_redirects       Cloudflare Pages の短縮 URL（/demo, /api）
+docs/vendor/          docs:build で生成するフォールバック（Git 管理外）
+vite.docs.config.js   docs/vendor/canvas-flow.js を作るビルド設定
+wrangler.toml         Cloudflare Pages の設定（出力先 = docs）
 ```
 
 公開されるパッケージには `dist/`（ビルド済み ESM + ソースマップ）、`src/`（元のソース）、
-`docs/api.html`、`README.md`、`CHANGELOG.md`、`LICENSE` が含まれます。
+`docs/`（API 仕様書とデモ）、`README.md`、`CHANGELOG.md`、`LICENSE` が含まれます。
+
+## ドキュメントサイト（Cloudflare Pages）
+
+`docs/` をそのまま静的サイトとして公開できます。中身は紹介ページ `index.html`、デモ `demo.html`、
+API 仕様書 `api.html` と、CDN に届かないとき用のフォールバック `vendor/canvas-flow.js`
+（`npm run docs:build` が `lit` まで含めた 1 ファイルとして生成。Git 管理外）です。
+`demo.html` は jsDelivr →`vendor/` → リポジトリの `src/` の順に読み込み先を試すので、npm 公開前でもデモが動きます。
+
+まずローカルで確認します。
+
+```bash
+npm run docs:build     # docs/vendor/canvas-flow.js を生成
+npm run docs:preview   # docs/ を静的配信して表示を確認
+```
+
+### 方法 A: wrangler で直接アップロード
+
+```bash
+npx wrangler login     # 初回のみ（ブラウザで認証）
+npm run deploy:docs    # docs:build → wrangler pages deploy docs
+```
+
+プロジェクトが無ければ初回に作成するか聞かれます。プロジェクト名は `wrangler.toml` の `name`（`canvas-flow`）です。
+公開 URL は `https://canvas-flow.pages.dev`（プロジェクト名 + `.pages.dev`）になります。
+
+### 方法 B: GitHub 連携（push で自動デプロイ）
+
+Cloudflare ダッシュボードの Workers & Pages → Create → Pages → Connect to Git でこのリポジトリを選び、次のように設定します。
+
+| 項目 | 値 |
+| --- | --- |
+| フレームワークプリセット | None |
+| ビルドコマンド | `npm ci && npm run docs:build` |
+| ビルド出力ディレクトリ | `docs` |
+| ルートディレクトリ | （空欄のまま） |
+
+これらの入力欄は Connect to Git の「Set up builds and deployments（ビルドとデプロイの設定）」ステップにあります。
+見つからないときは次を確認してください。
+
+- **ルートディレクトリ**は「Root directory (advanced)」という折りたたみの中の `Path` です。このリポジトリでは空欄のままで構いません
+- **ビルド出力ディレクトリ**が読み取り専用・非表示になっている場合は、`wrangler.toml` の `pages_build_output_dir` が設定の出どころになっているためです
+  （[Cloudflare のドキュメント](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)いわく "This file becomes the source of truth. You will be able to see, but not edit, the same fields when you log into the Cloudflare dashboard."）。
+  その場合はビルドコマンドだけ設定すれば出力先は `docs` になります。ダッシュボードで編集したいときは `wrangler.toml` から
+  `pages_build_output_dir` の行を消してください
+- 入力欄が一切出てこない場合は、Pages ではなく Workers の「リポジトリをインポート」フローに入っている可能性があります。
+  Workers & Pages → Create application →**Pages タブ**→ Connect to Git から進めてください
+- 作成後に変更するときは、プロジェクト → Settings → Builds & deployments → Build configurations の Edit です
+
+`wrangler.toml` に `pages_build_output_dir = "docs"` を書いてあるので、出力先は自動で認識されます。
+以後 `main` への push ごとに本番デプロイ、それ以外のブランチはプレビューデプロイになります。
+
+`docs/_headers`（セキュリティヘッダとキャッシュ制御）と `docs/_redirects`（`/demo`、`/api` の短縮 URL）は
+どちらの方法でも Cloudflare 側が解釈します。独自ドメインを使う場合は Pages プロジェクトの Custom domains から追加してください。
 
 ## リリース手順（メンテナ向け）
 
