@@ -19,11 +19,13 @@
 - Undo / Redo、ノード幅リサイズ、タッチのピンチズーム
 - 無限スクロール、ホイールズーム、縮尺リセット・全体表示、検索とセンタリング、ミニマップ
 - JSON インポート／エクスポート、JSON を指定位置に追加（テンプレート挿入）
+- つながりの強調表示（選択ノードと同じ流れにある要素だけをはっきり描き、他を薄くする。向きは lineage / downstream / upstream / both）
 - 自動整列（階層レイアウト）
 - ノードの移動単位（グリッド吸着）
 - テーマ・ノード種別・個別スタイル・描画関数の差し替え
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html` と CDN 版デモ `docs/demo.html`
+- TypeScript 型定義 `types/*.d.ts`（イベント名から detail の型が決まる、`hitTest` は判別可能ユニオン、カスタム要素も型付き）
 
 [Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/hidemikimura/canvas-flow/releases/tag/v0.1.0

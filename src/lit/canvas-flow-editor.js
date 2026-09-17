@@ -20,6 +20,7 @@ import { NodeEditor } from '../core/editor.js';
  *  - edge-delete-icon "false" で無効          ホバー／選択中のコネクタ中央に削除アイコンを出す（既定 有効）
  *  - move-snap   number                       ノードの移動単位（px）。0 で無効（既定）
  *  - edge-type   bezier | straight | step     コネクタの描画方法（既定 bezier）。コネクタ単位は edge.type
+ *  - focus-mode  off | connected | neighbors   選択ノードと繋がっている要素を強調し他を薄くする（既定 off）
  *
  * イベント（CustomEvent, detail に内容）:
  *  selection-change, viewport-change, graph-change, node-add, node-remove, node-change,
@@ -46,6 +47,7 @@ export class CanvasFlowEditor extends LitElement {
     edgeDeleteIcon: { attribute: 'edge-delete-icon', converter: (v) => v !== 'false' && v !== '0' },
     moveSnap: { attribute: 'move-snap', type: Number },
     edgeType: { attribute: 'edge-type' },
+    focusMode: { attribute: 'focus-mode' },
     exportFilename: { attribute: 'export-filename' },
     _dropping: { state: true },
     minimapWidth: { attribute: 'minimap-width', type: Number },
@@ -179,6 +181,7 @@ export class CanvasFlowEditor extends LitElement {
     this.edgeDeleteIcon = true;
     this.moveSnap = 0;
     this.edgeType = 'bezier';
+    this.focusMode = 'off';
     this.exportFilename = 'canvas-flow.json';
     this._dropping = false;
     this.minimapWidth = 200;
@@ -207,6 +210,7 @@ export class CanvasFlowEditor extends LitElement {
       rules: this._rules(),
       edgeDeleteIcon: this.edgeDeleteIcon,
       moveSnap: this.moveSnap,
+      focusMode: this.focusMode,
     });
     const ed = this.editor;
     if (this.edgeType && this.edgeType !== 'bezier') ed.setEdgeType(this.edgeType);
@@ -238,6 +242,7 @@ export class CanvasFlowEditor extends LitElement {
     relay('edges:delete', 'edges-delete');
     relay('insert', 'insert');
     relay('edge-type:change', 'edge-type-change');
+    relay('focus:change', 'focus-change');
     relay('node:click', 'node-click');
     relay('item:click', 'item-click');
     relay('edge:click', 'edge-click');
@@ -310,6 +315,7 @@ export class CanvasFlowEditor extends LitElement {
     if (changed.has('maxInputs') || changed.has('maxOutputs') || changed.has('onFull')) ed.setRules(this._rules());
     if (changed.has('moveSnap')) ed.setMoveSnap(this.moveSnap);
     if (changed.has('edgeType') && this.edgeType && ed.edgeType !== this.edgeType) ed.setEdgeType(this.edgeType);
+    if (changed.has('focusMode') && ed.focusMode !== this.focusMode) ed.setFocusMode(this.focusMode);
     if (changed.has('edgeDeleteIcon')) {
       ed.options.edgeDeleteIcon = this.edgeDeleteIcon;
       ed.requestRender();
@@ -461,6 +467,20 @@ export class CanvasFlowEditor extends LitElement {
   }
   setSelectedEdgeType(type) {
     this.editor?.setSelectedEdgeType(type);
+  }
+  /** 強調表示モード。属性 `focus-mode` と同期する */
+  setFocusMode(mode, options) {
+    const m = mode === true ? 'connected' : mode === false ? 'off' : mode;
+    if (options) {
+      this.focusMode = m;
+      this.editor?.setFocusMode(m, options);
+    } else {
+      this.focusMode = m;
+    }
+  }
+  /** 強調表示の対象を選択に加える */
+  selectConnected(options) {
+    return this.editor?.selectConnected(options) ?? null;
   }
   deleteSelectedEdges(options) {
     return this.editor?.deleteSelectedEdges(options) ?? [];

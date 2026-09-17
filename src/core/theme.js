@@ -57,6 +57,18 @@ export const defaultTheme = {
       hoverColor: '#ffffff',
     },
   },
+  /**
+   * 強調表示（focusMode）。選択ノードと繋がっていない要素を薄くする。
+   *  - dimOpacity: 薄くする側の不透明度
+   *  - edgeStroke / edgeWidth: 繋がっているコネクタを色や太さで強調する（null で通常描画のまま）
+   */
+  focus: {
+    dimOpacity: 0.12,
+    /** 簡易表示（LOD）中は線が細く消えやすいので少し濃くする */
+    dimOpacityLod: 0.25,
+    edgeStroke: null,
+    edgeWidth: null,
+  },
   selectionBox: {
     fill: 'rgba(59,130,246,0.08)',
     stroke: '#3b82f6',

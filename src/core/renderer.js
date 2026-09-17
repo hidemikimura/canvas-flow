@@ -57,6 +57,7 @@ export class Renderer {
    * @param {{from:{x:number,y:number}, to:{x:number,y:number}, dir:string}|null} state.pendingEdge
    * @param {object[]} [state.deleteIconEdges] 削除アイコンを描くエッジ
    * @param {string|null} [state.hoverEdgeDelete] アイコンをホバー中のエッジ ID
+   * @param {{nodes:Set<string>, edges:Set<string>}|null} [state.focus] 強調表示の対象。これ以外は薄く描く
    */
   render(state) {
     const t0 = performance.now();
@@ -82,21 +83,42 @@ export class Renderer {
       // 遠景: 個別スタイルを省き、1 パスにまとめて描く（10000 ノード全表示でも数 ms）
       ({ edges, nodes } = this._renderFar(visible, state));
     } else {
+      const focus = state.focus ?? null;
+      const dimAlpha = this.theme.focus.dimOpacity;
+
       // --- エッジ ---
       edges = this.graph.edgesInRect(visible);
       const deferred = [];
       ctx.lineCap = 'round';
+      // 薄くする側を先に描いてから、強調する側を上に重ねる
+      if (focus) {
+        ctx.globalAlpha = dimAlpha;
+        for (const e of edges) if (!focus.edges.has(e.id)) this._drawEdge(e, false, false);
+        ctx.globalAlpha = 1;
+      }
       for (const e of edges) {
+        if (focus && !focus.edges.has(e.id)) continue;
         const sel = state.selectedEdges.has(e.id);
         const hov = state.hoverEdge === e.id;
         if (sel || hov) deferred.push(e);
-        else this._drawEdge(e, false, false);
+        else this._drawEdge(e, false, false, focus ? 'focus' : null);
       }
-      for (const e of deferred) this._drawEdge(e, state.selectedEdges.has(e.id), state.hoverEdge === e.id);
+      for (const e of deferred) {
+        this._drawEdge(e, state.selectedEdges.has(e.id), state.hoverEdge === e.id, focus ? 'focus' : null);
+      }
 
       // --- ノード ---
       nodes = this.graph.nodesInRect(visible);
-      for (const n of nodes) this._drawNode(n, state, lod);
+      if (focus) {
+        ctx.globalAlpha = dimAlpha;
+        for (const n of nodes) if (!focus.nodes.has(n.id)) this._drawNode(n, state, lod);
+        this._flushPorts();
+        ctx.globalAlpha = 1;
+      }
+      for (const n of nodes) {
+        if (focus && !focus.nodes.has(n.id)) continue;
+        this._drawNode(n, state, lod);
+      }
       this._flushPorts();
     }
 
@@ -130,31 +152,45 @@ export class Renderer {
     const edges = graph.edgesInRect(visible);
     const nodes = graph.nodesInRect(visible);
 
-    // エッジ（通常）
+    const focus = state.focus ?? null;
+
+    // エッジ（通常）。focus 中は対象外を先に薄く描く
     ctx.lineCap = 'butt';
-    ctx.beginPath();
-    for (const e of edges) {
-      if (state.selectedEdges.has(e.id)) continue;
-      const g = graph.edgeGeometry(e);
-      if (!g) continue;
-      this._edgePathFar(g);
+    for (const pass of focus ? ['dim', 'focus'] : ['all']) {
+      ctx.globalAlpha = pass === 'dim' ? theme.focus.dimOpacityLod : 1;
+      ctx.beginPath();
+      for (const e of edges) {
+        if (state.selectedEdges.has(e.id)) continue;
+        if (pass === 'dim' && focus.edges.has(e.id)) continue;
+        if (pass === 'focus' && !focus.edges.has(e.id)) continue;
+        const g = graph.edgeGeometry(e);
+        if (!g) continue;
+        this._edgePathFar(g);
+      }
+      ctx.strokeStyle = pass === 'focus' && theme.focus.edgeStroke ? theme.focus.edgeStroke : theme.edge.stroke;
+      ctx.lineWidth = (pass === 'focus' && theme.focus.edgeWidth ? theme.focus.edgeWidth : theme.edge.strokeWidth) / vp.zoom;
+      ctx.stroke();
     }
-    ctx.strokeStyle = theme.edge.stroke;
-    ctx.lineWidth = theme.edge.strokeWidth / vp.zoom;
-    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // ノード（通常）: 種別スタイルが違っても塗りは既定色でまとめる
-    ctx.beginPath();
-    for (const n of nodes) {
-      if (state.selectedNodes.has(n.id)) continue;
-      const r = graph.nodeRect(n);
-      ctx.rect(r.x, r.y, r.w, r.h);
+    for (const pass of focus ? ['dim', 'focus'] : ['all']) {
+      ctx.globalAlpha = pass === 'dim' ? theme.focus.dimOpacityLod : 1;
+      ctx.beginPath();
+      for (const n of nodes) {
+        if (state.selectedNodes.has(n.id)) continue;
+        if (pass === 'dim' && focus.nodes.has(n.id)) continue;
+        if (pass === 'focus' && !focus.nodes.has(n.id)) continue;
+        const r = graph.nodeRect(n);
+        ctx.rect(r.x, r.y, r.w, r.h);
+      }
+      ctx.fillStyle = theme.node.headerFill;
+      ctx.fill();
+      ctx.strokeStyle = theme.node.stroke;
+      ctx.lineWidth = theme.node.strokeWidth / vp.zoom;
+      ctx.stroke();
     }
-    ctx.fillStyle = theme.node.headerFill;
-    ctx.fill();
-    ctx.strokeStyle = theme.node.stroke;
-    ctx.lineWidth = theme.node.strokeWidth / vp.zoom;
-    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // 選択中のものは強調して上に描く
     if (state.selectedEdges.size) {
@@ -258,16 +294,28 @@ export class Renderer {
     }
   }
 
-  _drawEdge(edge, selected, hover) {
+  _drawEdge(edge, selected, hover, emphasis = null) {
     const g = this.graph.edgeGeometry(edge);
     if (!g) return;
     const { ctx, viewport: vp } = this;
     const st = this.resolveEdgeStyle(edge);
     if (this.renderEdge && this.renderEdge(ctx, edge, g, this._api(selected, hover, st)) === true) return;
+    const fs = this.theme.focus;
     this._edgePath(g);
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = selected ? st.selectedStroke : hover ? st.hoverStroke : st.stroke;
-    ctx.lineWidth = (selected ? st.selectedStrokeWidth : st.strokeWidth) / vp.zoom;
+    ctx.strokeStyle = selected
+      ? st.selectedStroke
+      : hover
+        ? st.hoverStroke
+        : emphasis === 'focus' && fs.edgeStroke
+          ? fs.edgeStroke
+          : st.stroke;
+    const w = selected
+      ? st.selectedStrokeWidth
+      : emphasis === 'focus' && fs.edgeWidth
+        ? fs.edgeWidth
+        : st.strokeWidth;
+    ctx.lineWidth = w / vp.zoom;
     ctx.stroke();
   }
 

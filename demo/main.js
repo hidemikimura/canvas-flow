@@ -45,8 +45,10 @@ function generate(n) {
       output: type === 'note' ? { max: 3, visible: false } : { max: 3 },
       items,
     });
-    // 左隣と接続（項目ポート同士）
-    if (col > 0) {
+    // 8 個ずつのまとまり（連結成分）に分けておく。強調表示モードの効果が分かるように
+    const cluster = (k) => Math.floor(k / 8);
+    // 左隣と接続（項目ポート同士）。まとまりを越えては繋がない
+    if (col > 0 && cluster(i) === cluster(i - 1)) {
       edges.push({
         id: `e${i}a`,
         source: `n${i - 1}`,
@@ -56,7 +58,7 @@ function generate(n) {
       });
     }
     // 上と接続（ヘッダポート同士）
-    if (row > 0 && i % 3 === 0) {
+    if (row > 0 && i % 3 === 0 && cluster(i) === cluster(i - cols)) {
       edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
     }
   }
@@ -137,6 +139,17 @@ document.getElementById('edge-type').addEventListener('change', (e) => {
 });
 el.addEventListener('edge-type-change', (e) => {
   if (!e.detail.edges) document.getElementById('edge-type').value = e.detail.type;
+});
+
+// 選択ノードと繋がっている要素を強調（他は薄くなる）。値は "モード:向き"
+document.getElementById('focus').addEventListener('change', (e) => {
+  const [mode, direction = 'lineage'] = e.target.value.split(':');
+  el.setFocusMode(mode, { direction });
+});
+el.addEventListener('focus-change', (e) => {
+  const { mode, direction, nodes, edges } = e.detail;
+  document.getElementById('focus').value = mode === 'off' ? 'off' : `${mode}:${direction}`;
+  console.log('強調対象', mode, direction, nodes.length, 'ノード /', edges.length, 'コネクタ');
 });
 document.getElementById('dragmode').addEventListener('change', (e) => {
   el.dragMode = e.target.checked ? 'select' : 'pan';
