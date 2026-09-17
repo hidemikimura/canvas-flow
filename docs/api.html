@@ -156,7 +156,7 @@
 </div>
 
 <h2 id="quickstart">導入</h2>
-<pre><code>import { NodeEditor } from 'canvas-flow/core';   // または 'canvas-flow'
+<pre><code>import { NodeEditor } from '@hidemikimura/canvas-flow/core';   // または '@hidemikimura/canvas-flow'
 
 const canvas   = document.querySelector('canvas.main');
 const minimap  = document.querySelector('canvas.minimap');   // 省略可
@@ -407,7 +407,7 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
   <tr><td><code>iterations</code></td><td>8</td><td>順序付け・座標調整の反復回数</td></tr>
   <tr><td><code>origin: {x, y}</code></td><td>対象の元の左上</td><td>整列後の左上位置</td></tr>
 </table>
-<p>位置だけを計算したい場合は <code>import { layeredLayout } from 'canvas-flow'</code> の <code>layeredLayout(graph, nodeIds, options) → Map&lt;id, {x, y}&gt;</code> を使います。</p>
+<p>位置だけを計算したい場合は <code>import { layeredLayout } from '@hidemikimura/canvas-flow'</code> の <code>layeredLayout(graph, nodeIds, options) → Map&lt;id, {x, y}&gt;</code> を使います。</p>
 </section>
 
 <h2 id="m-history">Undo / Redo</h2>

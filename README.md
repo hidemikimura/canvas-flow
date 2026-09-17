@@ -22,22 +22,27 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - ミニマップ（ドラッグで表示範囲を移動）
 - テーマ／ノード種別／ノード単位／コネクタ単位での見た目変更、描画関数の差し替え
 
-API の詳細は同梱の仕様書 [`docs/api.html`](docs/api.html) を参照してください（パッケージにも含まれているので、`node_modules/canvas-flow/docs/api.html` をブラウザで開くだけで読めます）。
+API の詳細は同梱の仕様書 [`docs/api.html`](docs/api.html) を参照してください（パッケージにも含まれているので、`node_modules/@hidemikimura/canvas-flow/docs/api.html` をブラウザで開くだけで読めます）。
 
 ## インストール
 
 ```bash
-npm install canvas-flow lit
+npm install @hidemikimura/canvas-flow lit
 ```
 
+npm には既存の `canvasflow` パッケージがあり、ハイフンを無視した同名判定で `canvas-flow` を取得できないため、
+スコープ付きの `@hidemikimura/canvas-flow` で公開しています。カスタム要素名 `<canvas-flow-editor>` と
+JSON の `format` フィールド（`"canvas-flow"`）は従来どおりで、パッケージ名だけが異なります。
+長い場合は import エイリアス（例: Vite の `resolve.alias` で `canvas-flow` → `@hidemikimura/canvas-flow`）を張ると短く書けます。
+
 `lit` は peerDependency（optional）です。Web Component 版 `<canvas-flow-editor>` を使う場合だけ必要で、
-コアのみ（`canvas-flow/core`）を使う場合はインストール不要です。
+コアのみ（`@hidemikimura/canvas-flow/core`）を使う場合はインストール不要です。
 
 | import | 内容 | lit |
 | --- | --- | --- |
-| `canvas-flow` | コア + Web Component（読み込むと `<canvas-flow-editor>` が登録される） | 必要 |
-| `canvas-flow/core` | `NodeEditor` などコアのみ（フレームワーク非依存） | 不要 |
-| `canvas-flow/lit` | Web Component のみ | 必要 |
+| `@hidemikimura/canvas-flow` | コア + Web Component（読み込むと `<canvas-flow-editor>` が登録される） | 必要 |
+| `@hidemikimura/canvas-flow/core` | `NodeEditor` などコアのみ（フレームワーク非依存） | 不要 |
+| `@hidemikimura/canvas-flow/lit` | Web Component のみ | 必要 |
 
 ES Modules 形式（`"type": "module"`）で配布しています。Node.js は 18 以上、ブラウザは Canvas 2D と
 `ResizeObserver` / `PointerEvent` が使える環境（Chrome / Edge / Firefox / Safari の現行版）が対象です。
@@ -46,7 +51,7 @@ CDN から直接読む場合:
 
 ```html
 <script type="module">
-  import 'https://cdn.jsdelivr.net/npm/canvas-flow/+esm';
+  import 'https://cdn.jsdelivr.net/npm/@hidemikimura/canvas-flow/+esm';
 </script>
 ```
 
@@ -64,7 +69,7 @@ npm run build        # dist/ にライブラリをビルド（ESM）
 ```html
 <canvas-flow-editor id="editor" style="width:100%;height:600px"></canvas-flow-editor>
 <script type="module">
-  import 'canvas-flow'; // または import './src/index.js'
+  import '@hidemikimura/canvas-flow'; // または import './src/index.js'
 
   const el = document.getElementById('editor');
   el.addEventListener('ready', () => {
@@ -259,7 +264,7 @@ el.addEventListener('node-click', (e) => {
 ## 使い方（コアのみ・フレームワーク非依存）
 
 ```js
-import { NodeEditor } from 'canvas-flow/core';
+import { NodeEditor } from '@hidemikimura/canvas-flow/core';
 
 const canvas = document.querySelector('canvas');
 const editor = new NodeEditor(canvas, { minimapCanvas: document.querySelector('canvas.minimap') });
@@ -476,7 +481,7 @@ el.autoLayout({ nodeIds: ['a', 'b', 'c'] });       // 対象を明示
 el.autoLayout({ layerGap: 160, nodeGap: 24, fit: false });
 
 // 位置だけ計算して自分で使う（ノードは動かさない）
-import { layeredLayout } from 'canvas-flow';
+import { layeredLayout } from '@hidemikimura/canvas-flow';
 const positions = layeredLayout(el.editor.graph, el.editor.graph.nodes.keys()); // Map<id, {x, y}>
 ```
 
@@ -589,7 +594,7 @@ docs/api.html         API 仕様書（パッケージに同梱）
 1. 変更内容を `CHANGELOG.md` の `Unreleased` に追記する
 2. `npm run release:check`（テスト → ビルド → `npm pack --dry-run` で同梱ファイルを確認）
 3. `npm version patch | minor | major`（`package.json` の更新と `vX.Y.Z` タグの作成）
-4. `npm publish`（`prepublishOnly` でテストとビルドが再実行される。スコープ無しの公開パッケージなので追加オプションは不要）
+4. `npm publish`（`prepublishOnly` でテスト、`prepack` でビルドが走る。スコープ付きだが `publishConfig.access: "public"` を設定済みなので、初回も `npm publish` だけで公開される。うまくいかないときは `npm publish --access public`）
 5. `git push && git push --tags`
 
 `files` に列挙したものだけが公開されます。新しく配布したいファイルを足したときは
