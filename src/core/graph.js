@@ -746,6 +746,61 @@ export class Graph extends Emitter {
   }
 
   /** ノードに接続しているエッジ一覧 */
+  /**
+   * 指定ノードから辿れるノードとコネクタを集める（強調表示用）。
+   * @param {Iterable<string>} startIds 起点のノード ID
+   * @param {object} [options]
+   * @param {number} [options.depth=Infinity] 何段まで辿るか（1 なら隣接のみ）
+   * @param {'lineage'|'downstream'|'upstream'|'both'} [options.direction='both']
+   *   - 'downstream' … 出力側へ進める先だけ
+   *   - 'upstream'   … 入力側へ遡る先だけ
+   *   - 'lineage'    … 先に上流をたどり、そこから流れる先すべて（同じ流れにあるもの）
+   *   - 'both'       … 向きを問わず繋がっているもの全部
+   * @param {boolean} [options.includeStart=true] 起点自身を含めるか
+   * @returns {{nodes: Set<string>, edges: Set<string>}}
+   */
+  connectedTo(startIds, { depth = Infinity, direction = 'both', includeStart = true } = {}) {
+    if (direction === 'lineage') {
+      // 上流をたどってから、その全員の下流を集める。
+      // 「自分の上流ではないのに、途中のノードへ合流しているだけ」のノードは入らない
+      const up = this.connectedTo(startIds, { depth, direction: 'upstream' });
+      const out = this.connectedTo(up.nodes, { depth, direction: 'downstream' });
+      for (const id of up.nodes) out.nodes.add(id);
+      for (const id of up.edges) out.edges.add(id);
+      if (!includeStart) for (const id of startIds) out.nodes.delete(id);
+      return out;
+    }
+    const nodes = new Set();
+    const edges = new Set();
+    let frontier = [];
+    for (const id of startIds) {
+      if (!this.nodes.has(id)) continue;
+      nodes.add(id);
+      frontier.push(id);
+    }
+    for (let d = 0; d < depth && frontier.length; d++) {
+      const next = [];
+      for (const id of frontier) {
+        for (const eid of this._adjacency.get(id) ?? []) {
+          const edge = this.edges.get(eid);
+          if (!edge) continue;
+          // 向きを考慮する場合、進める側だけを辿る
+          if (direction === 'downstream' && edge.source !== id) continue;
+          if (direction === 'upstream' && edge.target !== id) continue;
+          edges.add(eid);
+          const other = edge.source === id ? edge.target : edge.source;
+          if (!nodes.has(other)) {
+            nodes.add(other);
+            next.push(other);
+          }
+        }
+      }
+      frontier = next;
+    }
+    if (!includeStart) for (const id of startIds) nodes.delete(id);
+    return { nodes, edges };
+  }
+
   edgesOf(nodeId) {
     return [...(this._adjacency.get(nodeId) ?? [])].map((id) => this.edges.get(id));
   }

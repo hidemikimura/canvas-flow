@@ -1,0 +1,16 @@
+{
+  "//": "型定義（types/*.d.ts）の検証専用。ライブラリ本体は JavaScript のままビルドする。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "types": []
+  },
+  "include": ["types/**/*.d.ts", "test/types/**/*.ts"]
+}

@@ -11,6 +11,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - 移動単位の指定（例: 16px 刻み）。ドラッグ・矢印キー・ノード追加の位置が指定単位に揃う
 - コネクタのホバー／選択時に中央へ削除アイコンを表示し、クリックで削除
 - コネクタの描画方法を曲線（ベジェ）／直線／直角（階段状）から選べる。全体の既定とコネクタ単位の両方で指定可
+- 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）
 - 自動整列（階層レイアウト）: コネクタが左から右へ流れ、他のノードの上を横切らないように並べ直す
 - Undo / Redo（ドラッグやリサイズは 1 操作にまとめて記録）
 - ノードの幅リサイズ（右下グリップ）
@@ -57,12 +58,42 @@ CDN から直接読む場合:
 </script>
 ```
 
+## TypeScript
+
+手書きの型定義（`types/*.d.ts`）を同梱しています。`@types/...` のインストールや設定は不要で、
+import すればそのまま型が付きます。
+
+```ts
+import { NodeEditor, type Node, type EdgeType } from '@hidemikimura/canvas-flow/core';
+import '@hidemikimura/canvas-flow/lit';
+
+const editor = new NodeEditor(canvas, { moveSnap: 16, theme: { edge: { type: 'step' } } });
+const node: Node = editor.graph.addNode({ x: 0, y: 0, title: 'Source', output: true });
+```
+
+型付けの要点は次のとおりです。
+
+- **イベント名から `detail` の型が決まります**。`editor.on('item:click', (d) => d.item.label)` の `d` は補完が効き、
+  存在しないイベント名や間違ったプロパティ名はコンパイルエラーになります
+- **`hitTest()` は判別可能ユニオン**（`{type:'item', node, item}` など）なので、`switch (hit.type)` で安全に分岐できます
+- **`edgeGeometry()` は `type` で絞り込めます**。`g.type === 'bezier'` のときだけ制御点 `c1x` などが見えます
+- **`<canvas-flow-editor>` は `HTMLElementTagNameMap` に登録済み**です。`document.querySelector('canvas-flow-editor')` が
+  `CanvasFlowEditor` 型になり、`addEventListener('node-click', …)` の `e.detail` にも型が付きます
+- テーマは深い部分指定（`DeepPartial`）で、キー名を打ち間違えるとエラーになります
+
+`@hidemikimura/canvas-flow/core` の型は `lit` に依存しないので、コアだけ使う場合は lit を入れなくても型チェックが通ります。
+
+型定義そのものの検証は `npm run test:types`（`tsc --noEmit`）で行っています。
+`test/types/usage.ts` が公開 API を一通り呼び、間違った使い方が `@ts-expect-error` で
+「ちゃんとエラーになること」まで確かめています。
+
 ## 開発（このリポジトリで作業する場合）
 
 ```bash
 npm install          # 依存関係（lit, vite, vitest）
 npm run dev          # デモ (index.html) を http://localhost:5173 で起動
 npm test             # コアのユニットテスト
+npm run test:types   # 型定義の検証（tsc --noEmit）
 npm run build        # dist/ にライブラリをビルド（ESM）
 ```
 
@@ -118,6 +149,7 @@ npm run build        # dist/ にライブラリをビルド（ESM）
 | `edge-delete-icon` | `"false"` で無効 | 有効 | ホバー／選択中のコネクタ中央に削除アイコンを表示 |
 | `move-snap` | number | 0（無効） | ノードの移動単位（px）。ドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う |
 | `edge-type` | `'bezier' \| 'straight' \| 'step'` | `'bezier'` | コネクタの描画方法の既定（曲線 / 直線 / 直角の階段状）。コネクタ単位は `edge.type` |
+| `focus-mode` | `'off' \| 'connected' \| 'neighbors'` | `'off'` | 選択ノードと同じ流れにある要素を強調し、他を薄く描く |
 
 コア `NodeEditor` のオプションにはさらに `historyLimit`（既定 200）、`minNodeWidth`（既定 100）、`keyboardScope`（キーボード操作を受け付ける範囲の要素）、`rules`（`{ maxInputs, maxOutputs, onFull }`）、`edgeDeleteIcon`（既定 true）、`wheelGestureGap`（既定 250ms。この間隔以内のホイールイベントは同じ操作として扱う）があります。
 
@@ -205,6 +237,71 @@ el.editor.graph.addEdge({ ..., type: 'step' }); // 追加時に直接指定。JS
 `'line'` → `'straight'`、`'orthogonal'` → `'step'` などの別名も受け付けます（`normalizeEdgeType`）。
 `edgeRenderer` で自前描画する場合、`geom` には `type` と折れ線の頂点列 `points`（bezier は制御点 `c1x, c1y, c2x, c2y` も）が入ります。
 
+#### つながりの強調表示（他を薄くする）
+
+ノードを選択すると、そのノードと**同じ流れにある要素**だけをはっきり描き、それ以外を薄くします。
+大きなグラフで「この処理はどこから来てどこへ流れるのか」を追うときに使います。既定は無効です。
+
+```html
+<canvas-flow-editor focus-mode="connected"></canvas-flow-editor>
+```
+```js
+el.focusMode = 'connected';                                  // 同じ流れ全部（既定）
+el.setFocusMode('neighbors', { depth: 2 });                  // 2 段まで
+el.setFocusMode('connected', { direction: 'downstream' });   // 進める先だけ
+el.setFocusMode('connected', { direction: 'upstream' });     // 元をたどるだけ
+el.setFocusMode('connected', { direction: 'both' });         // 向きを問わず繋がっている全部
+el.focusMode = 'off';                                        // 解除
+```
+
+| モード | 強調する範囲 |
+| --- | --- |
+| `'off'`（既定） | 無効。通常どおり全部を描く |
+| `'connected'` | 辿れるところまですべて |
+| `'neighbors'` | `focusDepth` 段まで（既定 1） |
+
+| `focusDirection` | 辿る向き |
+| --- | --- |
+| `'lineage'`（既定） | 先に上流をたどり、そこから流れる先すべて |
+| `'downstream'` | 出力ポートから進める先だけ |
+| `'upstream'` | 入力ポートへ入ってくる側だけ |
+| `'both'` | 向きを問わず繋がっているもの全部 |
+
+既定の `'lineage'` は「同じ流れにあるもの」を選びます。次の例で **B** を選ぶと、上流の A と、A から流れる先である E・F、
+そして B の先の C が強調されます。D は E に合流しているだけで B とは別の系統なので、薄いままです。
+
+```
+A → B → C
+A → E、D → E、E → F
+
+B を選択 → A, B, C, E, F を強調（D と D→E は薄いまま）
+```
+
+選択が空のときは自動的に解除され、全部が通常表示に戻ります。
+
+薄さと強調の見た目は `theme.focus` で変えられます。
+
+```js
+el.theme = {
+  focus: {
+    dimOpacity: 0.12,      // 薄くする側の不透明度
+    dimOpacityLod: 0.25,   // 簡易表示（縮小）中は線が細いので少し濃く
+    edgeStroke: '#3b82f6', // 繋がっているコネクタの色（null で通常どおり）
+    edgeWidth: 3,          // 同じく太さ（null で通常どおり）
+  },
+};
+```
+
+関連する API もあります。
+
+```js
+el.editor.focusSet();          // → { nodes: Set, edges: Set } | null（無効・未選択なら null）
+el.selectConnected();          // 繋がっている要素を選択に加える（まとめて移動・削除したいとき）
+el.editor.graph.connectedTo(['n1'], { depth: 1, direction: 'lineage' });  // 純粋な探索だけ（この API の既定は 'both'）
+```
+
+強調対象が変わると `focus-change`（`{ mode, direction, nodes, edges }`）が発火します。
+
 #### 選択範囲内のコネクタだけを削除
 
 範囲選択したあと、ノードは残してコネクタだけを外したいときに使います。ツールバーの「コネクタ削除」ボタン、Shift + Delete、または `deleteSelectedEdges(options)` で実行でき、1 回の Undo で戻ります。
@@ -230,6 +327,7 @@ el.editor.selectedEdgeIds({ scope });            // 削除せずに対象 ID を
 `import`（`{mode, nodes, edges, warnings}`）, `export`（`{data, selectionOnly}`）, `import-error`（`{errors}`）,
 `connect-rejected`（`{node, port, reason}` 満杯のポートからコネクタを引こうとした）,
 `edge-delete-icon`（`{edge}` 削除アイコンのクリックでコネクタを削除した）, `edges-delete`（`{ids, scope}` 選択範囲内のコネクタだけを削除した）, `insert`（`{at, anchor, nodes, edges}` JSON を指定位置に追加した）, `layout`（`{nodes}` 自動整列を適用した）, `edge-type-change`（`{type, edges}` コネクタの描画方法を変えた。`edges` が null なら全体の既定）,
+`focus-change`（`{mode, direction, nodes, edges}` 強調表示の対象が変わった）,
 `node-click` / `item-click` / `edge-click` / `canvas-click`（クリック。後述）,
 `canvas-dblclick`（空白ダブルクリック、ワールド座標）, `edge-dblclick`, `connect-cancel`,
 `node-edit` / `item-edit`（`preventDefault()` すると内蔵のインライン編集を抑止し、独自 UI を出せる）, `render`（描画統計）
@@ -531,6 +629,7 @@ el.theme = {
 ```
 
 `node.headerHeight` / `node.itemHeight` / `node.padding` / `node.width` / `edge.curvature` / `edge.type` / `edge.stepOffset` はレイアウトにも反映されます。
+強調表示の見た目は `focus`（`dimOpacity`, `dimOpacityLod`, `edgeStroke`, `edgeWidth`）です。
 削除アイコンの見た目は `edge.deleteIcon`（`radius`, `fill`, `stroke`, `color`, `hoverFill`, `hoverColor`。半径は画面ピクセル）で変えられます。
 
 ### ノード種別・個別スタイル
@@ -593,11 +692,16 @@ docs/_headers         レスポンスヘッダの設定
 docs/_redirects       短縮 URL の設定（/demo, /api）
 docs/vendor/          docs:build で生成するフォールバック（Git 管理外）
 vite.docs.config.js   docs/vendor/canvas-flow.js を作るビルド設定
+types/
+  core.d.ts           コアの型定義（NodeEditor, Graph, データモデル, イベント）
+  lit.d.ts            <canvas-flow-editor> の型定義
+  index.d.ts          両方をまとめたエントリ
+tsconfig.json         型定義の検証専用の設定
 wrangler.toml         Cloudflare Workers の設定（静的アセット = docs）
 ```
 
 公開されるパッケージには `dist/`（ビルド済み ESM + ソースマップ）、`src/`（元のソース）、
-`docs/`（API 仕様書とデモ）、`README.md`、`CHANGELOG.md`、`LICENSE` が含まれます。
+`types/`（型定義）、`docs/` の 3 ページ、`README.md`、`CHANGELOG.md`、`LICENSE` が含まれます。
 
 ## ドキュメントサイト（Cloudflare Workers）
 
@@ -669,7 +773,7 @@ URL の正規化は Workers の既定（`html_handling = "auto-trailing-slash"`�
 ## リリース手順（メンテナ向け）
 
 1. 変更内容を `CHANGELOG.md` の `Unreleased` に追記する
-2. `npm run release:check`（テスト → ビルド → `npm pack --dry-run` で同梱ファイルを確認）
+2. `npm run release:check`（テスト → 型定義の検証 → ビルド → `npm pack --dry-run` で同梱ファイルを確認）
 3. `npm version patch | minor | major`（`package.json` の更新と `vX.Y.Z` タグの作成）
 4. `npm publish`（`prepublishOnly` でテスト、`prepack` でビルドが走る。スコープ付きだが `publishConfig.access: "public"` を設定済みなので、初回も `npm publish` だけで公開される。うまくいかないときは `npm publish --access public`）
 5. `git push && git push --tags`

@@ -110,6 +110,7 @@
     <li><a href="#overview">概要</a></li>
     <li><a href="#quickstart">導入</a></li>
     <li><a href="#terms">用語と座標系</a></li>
+    <li><a href="#typescript">TypeScript</a></li>
   </ul>
   <h4>NodeEditor</h4>
   <ul>
@@ -196,6 +197,25 @@ editor.on('item:edit', ({ node, item, screenRect }) =&gt; { /* 入力欄を scre
   <tr><td>クライアント座標</td><td>マウスイベントの <code>clientX</code> / <code>clientY</code>。<code>clientToWorld()</code> で変換</td></tr>
 </table>
 
+<h2 id="typescript">TypeScript</h2>
+<section class="api" data-name="typescript types d.ts 型定義 型 補完 NodeEditorEvents HitTestResult CanvasFlowEditorEventMap">
+<h3><span class="tag type">type</span>同梱の型定義</h3>
+<p>手書きの型定義を同梱しているため、追加のインストールや設定なしで型が付きます。エントリごとに
+<code>types/core.d.ts</code> / <code>types/lit.d.ts</code> / <code>types/index.d.ts</code> が対応します。</p>
+<pre><code>import { NodeEditor, type Node, type EdgeType } from '@hidemikimura/canvas-flow/core';
+import '@hidemikimura/canvas-flow/lit';</code></pre>
+<table>
+  <tr><th>型</th><th>内容</th></tr>
+  <tr><td><code>NodeEditorEvents</code></td><td>イベント名 → detail の対応。<code>editor.on()</code> は名前から detail の型が決まり、未知の名前はエラーになる</td></tr>
+  <tr><td><code>HitTestResult</code></td><td><code>hitTest()</code> の戻り値。<code>type</code> で判別できるユニオン</td></tr>
+  <tr><td><code>EdgeGeometry</code></td><td><code>BezierEdgeGeometry</code>（制御点あり）と <code>PolylineEdgeGeometry</code> のユニオン。<code>g.type === 'bezier'</code> で絞り込む</td></tr>
+  <tr><td><code>Node</code> / <code>NodeItem</code> / <code>Edge</code> / <code>PortSpec</code> / <code>PortKey</code></td><td>データモデル。<code>NodeInput</code> / <code>EdgeInput</code> は id を省略できる追加用</td></tr>
+  <tr><td><code>Theme</code> / <code>ThemePatch</code></td><td><code>ThemePatch</code> は深い部分指定。キー名の打ち間違いはエラーになる</td></tr>
+  <tr><td><code>CanvasFlowEditorEventMap</code></td><td>Lit 版の CustomEvent 名 → detail。<code>HTMLElementTagNameMap</code> も拡張済みで <code>querySelector('canvas-flow-editor')</code> に型が付く</td></tr>
+</table>
+<div class="note"><code>/core</code> の型は <code>lit</code> に依存しないので、コアだけ使う場合は lit を入れずに型チェックが通ります。</div>
+</section>
+
 <h2 id="constructor">コンストラクタ / オプション</h2>
 <section class="api" data-name="constructor NodeEditor options">
 <h3><span class="tag method">constructor</span><code>new NodeEditor(canvas, options?)</code></h3>
@@ -215,6 +235,9 @@ editor.on('item:edit', ({ node, item, screenRect }) =&gt; { /* 入力欄を scre
   <tr><td><code>keyboardScope</code></td><td>Element</td><td>canvas</td><td>この要素内を最後にポインタ操作していればキーボードショートカットを受け付ける（Lit 版はホスト要素）</td></tr>
   <tr><td><code>wheelGestureGap</code></td><td>number (ms)</td><td>250</td><td>この間隔以内のホイールイベントは同じスクロール操作とみなし、ズーム／パンの判定を維持する（慣性スクロール対策）</td></tr>
   <tr><td><code>moveSnap</code></td><td>number (px)</td><td>0（無効）</td><td>ノードの移動単位。ドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う</td></tr>
+  <tr><td><code>focusMode</code></td><td><code>'off' | 'connected' | 'neighbors'</code></td><td><code>'off'</code></td><td>選択ノードと同じ流れにある要素を強調し、他を薄く描く</td></tr>
+  <tr><td><code>focusDepth</code></td><td>number</td><td>1</td><td><code>'neighbors'</code> のときに何段まで辿るか</td></tr>
+  <tr><td><code>focusDirection</code></td><td><code>'lineage' | 'downstream' | 'upstream' | 'both'</code></td><td><code>'lineage'</code></td><td>辿る向き。既定は上流をたどってから流れる先すべて</td></tr>
   <tr><td><code>theme.edge.type</code></td><td><code>'bezier' | 'straight' | 'step'</code></td><td><code>'bezier'</code></td><td>コネクタの描画方法の既定（<code>theme</code> オプション経由。後から <code>setEdgeType()</code> で変更可）</td></tr>
 </table>
 <p class="muted">オプションは <code>editor.options</code> に保持され、<code>wheelMode</code> / <code>dragMode</code> / <code>readOnly</code> / <code>edgeDeleteIcon</code> は実行中に書き換えても次の操作から反映されます。</p>
@@ -265,6 +288,37 @@ editor.on('item:edit', ({ node, item, screenRect }) =&gt; { /* 入力欄を scre
 editor.setEdgeType('straight', ['e1']);     // e1 だけ
 editor.graph.addEdge({ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in', type: 'step' });</code></pre>
 <p>ドラッグ中の仮コネクタ・ヒットテスト・削除アイコンの位置（形状の中点）・簡易表示（LOD）も同じ形に従います。<code>'line'</code> → <code>'straight'</code>、<code>'orthogonal'</code> / <code>'smoothstep'</code> → <code>'step'</code> の別名は <code>normalizeEdgeType()</code> が丸めます。</p>
+</section>
+<section class="api" data-name="setFocusMode focusMode focusSet selectConnected 強調 ハイライト 薄く dim focus connected neighbors つながり">
+<h3><span class="tag method">method</span><code>setFocusMode(mode, options?)</code> / <span class="tag prop">getter/setter</span><code>focusMode</code></h3>
+<p>選択ノードと<strong>同じ流れにある要素</strong>だけをはっきり描き、それ以外を薄くします。選択が空のときは自動的に解除されます。
+対象が変わると <code>'focus:change'</code>（<code>{ mode, direction, nodes, edges }</code>）が発火します。</p>
+<table>
+  <tr><th>mode</th><th>強調する範囲</th></tr>
+  <tr><td><code>'off'</code>（既定）</td><td>無効。全部を通常どおり描く</td></tr>
+  <tr><td><code>'connected'</code></td><td>進める先をすべて辿る</td></tr>
+  <tr><td><code>'neighbors'</code></td><td><code>focusDepth</code> 段まで（既定 1 = 次の 1 段だけ）</td></tr>
+</table>
+<table>
+  <tr><th>direction</th><th>辿る向き</th></tr>
+  <tr><td><code>'lineage'</code>（既定）</td><td>先に上流をたどり、そこから流れる先すべて</td></tr>
+  <tr><td><code>'downstream'</code></td><td>出力ポートから進める先だけ</td></tr>
+  <tr><td><code>'upstream'</code></td><td>入力ポートへ入ってくる側だけ</td></tr>
+  <tr><td><code>'both'</code></td><td>向きを問わず繋がっているもの全部</td></tr>
+</table>
+<div class="note"><strong>'lineage' の考え方</strong><br />
+<code>A → B → C</code> / <code>A → E</code> / <code>D → E</code> / <code>E → F</code> というグラフで <strong>B</strong> を選ぶと、
+上流の A と、A から流れる先の E・F、B の先の C が強調されます。D は E に合流しているだけで B とは別の系統なので薄いままです。</div>
+<pre><code>editor.setFocusMode('connected');                              // 同じ流れ全部（既定）
+editor.setFocusMode('neighbors', { depth: 2 });                // 2 段まで
+editor.setFocusMode('connected', { direction: 'downstream' }); // 進める先だけ
+editor.focusMode = 'off';</code></pre>
+<h3><span class="tag method">method</span><code>focusSet() → { nodes: Set, edges: Set } | null</code></h3>
+<p>現在の強調対象。無効なとき・選択が空のときは <code>null</code>（= 全部を通常描画）。選択とグラフの変更でキャッシュが破棄されます。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>selectConnected(options?) → { nodes, edges } | null</code></h3>
+<p>繋がっている要素を選択に加えます（まとめて移動・削除したいとき）。探索だけしたい場合は
+<code>graph.connectedTo(startIds, { depth, direction, includeStart })</code> を直接呼べます。</p>
+<div class="note">薄さと強調の見た目は <code>theme.focus</code>（<code>dimOpacity</code> 既定 0.12 / <code>dimOpacityLod</code> 既定 0.25 / <code>edgeStroke</code> / <code>edgeWidth</code>）で変えられます。簡易表示（LOD）中は線が細く消えやすいため別の値を持たせています。</div>
 </section>
 <section class="api" data-name="registerNodeType nodeTypes">
 <h3><span class="tag method">method</span><code>registerNodeType(type, { style })</code></h3>
@@ -527,6 +581,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>import</code> / <code>export</code></td><td><code>import</code> / <code>export</code></td><td><code>{ mode, nodes, edges, warnings }</code> / <code>{ data, selectionOnly }</code></td><td>JSON 入出力</td></tr>
   <tr><td><code>layout</code></td><td><code>layout</code></td><td><code>{ nodes: string[] }</code></td><td>自動整列を適用した</td></tr>
   <tr><td><code>edge-type:change</code></td><td><code>edge-type-change</code></td><td><code>{ type, edges: string[] | null }</code></td><td>コネクタの描画方法を変えた（<code>edges</code> が null なら全体の既定）</td></tr>
+  <tr><td><code>focus:change</code></td><td><code>focus-change</code></td><td><code>{ mode, direction, nodes: string[], edges: string[] }</code></td><td>強調表示の対象が変わった</td></tr>
   <tr><td><code>edges:delete</code></td><td><code>edges-delete</code></td><td><code>{ ids: string[], scope }</code></td><td>選択範囲内のコネクタだけを削除した</td></tr>
   <tr><td><code>insert</code></td><td><code>insert</code></td><td><code>{ at, anchor, nodes, edges }</code></td><td><code>insertJSON</code> で JSON を指定位置に追加した</td></tr>
   <tr><td><code>render</code></td><td><code>render</code></td><td><code>{ nodes, edges, ms }</code></td><td>描画後の統計</td></tr>
@@ -641,6 +696,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>canConnect(...) → boolean</code> / <code>connectError(...) → string | null</code></td><td>接続可否。理由: <code>same-node</code> / <code>invalid-port</code> / <code>missing-port</code> / <code>duplicate</code> / <code>source-full</code> / <code>target-full</code></td></tr>
   <tr><td><code>updateEdge(id, patch)</code> / <code>removeEdge(id)</code> / <code>removeEdges(ids)</code></td><td>コネクタの更新・削除</td></tr>
   <tr><td><code>edgesOf(nodeId) → Edge[]</code></td><td>ノードに接続しているコネクタ</td></tr>
+  <tr><td><code>connectedTo(startIds, { depth, direction, includeStart }) → { nodes: Set, edges: Set }</code></td><td>起点から辿れるノードとコネクタ（強調表示・まとめ選択用）。<code>direction</code> は <code>'lineage' | 'downstream' | 'upstream' | 'both'</code>（この API の既定は <code>'both'</code>）</td></tr>
   <tr><td><code>portSpec(nodeId, key)</code> / <code>portEdges(nodeId, key)</code> / <code>portCapacity(nodeId, key) → { count, max, full }</code></td><td>ポートの定義・接続・残量</td></tr>
   <tr><td><code>portVisible(nodeId, key)</code> / <code>setPortVisible(...)</code> / <code>setPortsVisible(...)</code></td><td>ポートの表示状態</td></tr>
   <tr><td><code>nodeRect(node)</code> / <code>nodeWidth(node)</code> / <code>nodeHeight(node)</code></td><td>矩形・寸法</td></tr>
@@ -671,6 +727,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
           curvature: 0.5,   // bezier の曲がり具合
           stepOffset: 24,   // step の水平突き出し量
           deleteIcon: { radius: 9, fill, stroke, color, hoverFill, hoverColor } },
+  focus: { dimOpacity: 0.12, dimOpacityLod: 0.25, edgeStroke: null, edgeWidth: null },
   selectionBox: { fill, stroke },
   minimap: { background, border, node, selectedNode, viewportFill, viewportStroke },
   lodZoom: 0.3      // この拡大率以下で文字・ポート・影を省いた簡易描画
@@ -694,8 +751,9 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>edge-delete-icon</code></td><td><code>"false"</code> で無効</td><td>削除アイコン</td></tr>
   <tr><td><code>move-snap</code></td><td>0</td><td>ノードの移動単位（px）</td></tr>
   <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
+  <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectConnected</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>

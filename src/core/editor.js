@@ -36,6 +36,7 @@ export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, ED
  *  - 'edges:delete'           { ids: string[], scope }  選択範囲内のコネクタだけを削除した
  *  - 'insert'                 { at, anchor, nodes, edges }  insertJSON で JSON を指定位置に追加した
  *  - 'edge-type:change'       { type, edges: string[]|null }  コネクタの描画方法を変えた（edges が null なら全体の既定）
+ *  - 'focus:change'           { mode, direction, nodes: string[], edges: string[] }  強調表示の対象が変わった
  *  - 'node:click'             { node, item, header, port, x, y, screen, shiftKey, ... }  ノードをクリック（ドラッグせずに離した）
  *  - 'item:click'             { node, item, x, y, ... }  ノード内の項目をクリック（node:click も続けて発火）
  *  - 'edge:click'             { edge, x, y, ... }
@@ -62,7 +63,7 @@ export class NodeEditor extends Emitter {
   constructor(canvas, options = {}) {
     super();
     this.canvas = canvas;
-    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, ...options };
+    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, focusMode: 'off', focusDepth: 1, focusDirection: 'lineage', ...options };
     this.theme = mergeTheme(defaultTheme, options.theme);
     this.nodeTypes = { ...(options.nodeTypes ?? {}) };
 
@@ -89,6 +90,8 @@ export class NodeEditor extends Emitter {
     this.selectionBox = null;
     this.pendingEdge = null;
     this._clipboard = null;
+    /** 強調表示の対象のキャッシュ（選択・グラフ変更で破棄） */
+    this._focusCache = null;
     this._raf = 0;
     this._anim = null;
 
@@ -99,6 +102,7 @@ export class NodeEditor extends Emitter {
     this.interaction = new Interaction(this);
 
     this._onGraphChange = () => {
+      this._focusCache = null;
       this.minimap?.invalidate();
       this.requestRender();
       this.emit('graph:change');
@@ -228,6 +232,78 @@ export class NodeEditor extends Emitter {
     this.setEdgeType(type, ids.length ? ids : undefined);
   }
 
+  /* ---------- 強調表示（つながりのハイライト） ---------- */
+
+  /**
+   * 選択ノードと繋がっている要素を強調し、それ以外を薄く描くモードを切り替える。
+   *  - 'off'（既定）… 無効
+   *  - 'connected' … 辿れる範囲すべて（上流・下流をたどって行ける全部）
+   *  - 'neighbors' … 隣接のみ（`focusDepth` 段まで。既定 1）
+   * 既定の `focusDirection: 'lineage'` は「上流をたどってから、そこから流れる先すべて」を強調する。
+   * 選択ノードの手前（上流）とその先の流れは入るが、途中のノードへ合流しているだけの別系統は入らない。
+   * 進める先だけなら `'downstream'`、遡るだけなら `'upstream'`、向きを無視するなら `'both'`。
+   * @param {'off'|'connected'|'neighbors'|boolean} mode
+   * @param {{depth?:number, direction?:'lineage'|'downstream'|'upstream'|'both'}} [options]
+   */
+  setFocusMode(mode, { depth, direction } = {}) {
+    this.options.focusMode = mode === true ? 'connected' : mode === false ? 'off' : mode;
+    if (depth != null) this.options.focusDepth = depth;
+    if (direction) this.options.focusDirection = direction;
+    this._focusCache = null;
+    this.emit('focus:change', this._focusDetail());
+    this.requestRender();
+  }
+
+  get focusMode() {
+    const m = this.options.focusMode;
+    return m === 'connected' || m === 'neighbors' ? m : 'off';
+  }
+
+  set focusMode(mode) {
+    this.setFocusMode(mode);
+  }
+
+  /**
+   * 現在の強調表示の対象。無効なとき・選択が空のときは null（= 全部を通常描画）。
+   * @returns {{nodes:Set<string>, edges:Set<string>}|null}
+   */
+  focusSet() {
+    if (this.focusMode === 'off' || this.selection.nodes.size === 0) return null;
+    if (this._focusCache) return this._focusCache;
+    // 'connected' は辿れる範囲すべて。'neighbors' は focusDepth 段まで（既定 1）
+    const depth = this.focusMode === 'connected' ? Infinity : Math.max(1, this.options.focusDepth || 1);
+    const set = this.graph.connectedTo(this.selection.nodes, {
+      depth,
+      direction: this.options.focusDirection,
+    });
+    // 選択中のコネクタも常に強調側に含める
+    for (const id of this.selection.edges) set.edges.add(id);
+    this._focusCache = set;
+    return set;
+  }
+
+  _focusDetail() {
+    const set = this.focusSet();
+    return {
+      mode: this.focusMode,
+      direction: this.options.focusDirection,
+      nodes: set ? [...set.nodes] : [],
+      edges: set ? [...set.edges] : [],
+    };
+  }
+
+  /** 強調表示の対象を選択に加える（繋がりを丸ごと選びたいとき） */
+  selectConnected(options) {
+    const nodes = [...this.selection.nodes];
+    if (!nodes.length) return null;
+    const set = this.graph.connectedTo(nodes, {
+      depth: options?.depth ?? (this.focusMode === 'neighbors' ? Math.max(1, this.options.focusDepth || 1) : Infinity),
+      direction: options?.direction ?? this.options.focusDirection,
+    });
+    this.select({ nodes: [...set.nodes], edges: [...set.edges] });
+    return { nodes: [...set.nodes], edges: [...set.edges] };
+  }
+
   /** ノード種別を登録（style はテーマ node.* の上書き） */
   registerNodeType(type, def) {
     this.nodeTypes[type] = def;
@@ -283,6 +359,7 @@ export class NodeEditor extends Emitter {
       deleteIconEdges: this.deleteIconEdges(),
       selectionBox: this.selectionBox,
       pendingEdge: this.pendingEdge,
+      focus: this.focusSet(),
     });
     this.minimap?.render();
     this.emit('render', this.renderer.stats);
@@ -410,7 +487,9 @@ export class NodeEditor extends Emitter {
   /* ---------- 選択 ---------- */
 
   _emitSelection() {
+    this._focusCache = null;
     this.emit('selection:change', { nodes: [...this.selection.nodes], edges: [...this.selection.edges] });
+    if (this.focusMode !== 'off') this.emit('focus:change', this._focusDetail());
     this.minimap?.invalidate();
     this.requestRender();
   }
