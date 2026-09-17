@@ -24,15 +24,36 @@ export const FORMAT_VERSION = 1;
  *   nodeIds を渡すとそのノードと、両端がその中に含まれるエッジだけを出力する
  */
 export function serialize(graph, { nodeIds, viewport = null } = {}) {
-  let nodes;
+  const pack = (node, isRoot) => {
+    const { parent, ...rest } = structuredClone(node);
+    if (!isRoot) {
+      delete rest.x;
+      delete rest.y;
+      delete rest.width;
+    }
+    const kids = graph.childrenOf(node);
+    if (kids.length) rest.childs = kids.map((c) => pack(c, false));
+    return rest;
+  };
+
+  let tops;
   let edges;
   if (nodeIds) {
-    const set = new Set(nodeIds);
-    nodes = [...set].map((id) => graph.nodes.get(id)).filter(Boolean);
+    // 指定ノードは子孫も一緒に書き出す
+    const set = new Set();
+    for (const id of nodeIds) {
+      const node = graph.nodes.get(id);
+      if (!node) continue;
+      set.add(node.id);
+      for (const d of graph.descendantIds(node)) set.add(d);
+    }
+    tops = [...set]
+      .map((id) => graph.nodes.get(id))
+      .filter((n) => n && !(n.parent && set.has(n.parent)));
     const seen = new Set();
     edges = [];
-    for (const n of nodes) {
-      for (const e of graph.edgesOf(n.id)) {
+    for (const id of set) {
+      for (const e of graph.edgesOf(id)) {
         if (!seen.has(e.id) && set.has(e.source) && set.has(e.target)) {
           seen.add(e.id);
           edges.push(e);
@@ -40,13 +61,13 @@ export function serialize(graph, { nodeIds, viewport = null } = {}) {
       }
     }
   } else {
-    nodes = [...graph.nodes.values()];
+    tops = [...graph.nodes.values()].filter((n) => !graph.isChild(n));
     edges = [...graph.edges.values()];
   }
   const out = {
     format: FORMAT,
     version: FORMAT_VERSION,
-    nodes: nodes.map((n) => structuredClone(n)),
+    nodes: tops.map((n) => pack(n, true)),
     edges: edges.map((e) => structuredClone(e)),
   };
   if (viewport) out.viewport = { tx: viewport.tx, ty: viewport.ty, zoom: viewport.zoom };
@@ -91,20 +112,28 @@ export function validate(data) {
   if (errors.length) return { ok: false, errors };
 
   const nodes = [];
+  const flat = [];
   const ids = new Set();
-  rawNodes.forEach((n, i) => {
-    if (!n || typeof n !== 'object') return void errors.push(`nodes[${i}] がオブジェクトではありません`);
+
+  const normalizeNode = (n, path) => {
+    if (!n || typeof n !== 'object') {
+      errors.push(`${path} がオブジェクトではありません`);
+      return null;
+    }
     const node = { ...n };
     if (node.id == null) node.id = uid('n');
     node.id = String(node.id);
-    if (ids.has(node.id)) return void errors.push(`nodes[${i}]: id "${node.id}" が重複しています`);
+    if (ids.has(node.id)) {
+      errors.push(`${path}: id "${node.id}" が重複しています`);
+      return null;
+    }
     ids.add(node.id);
     if (typeof node.x !== 'number' || !Number.isFinite(node.x)) node.x = 0;
     if (typeof node.y !== 'number' || !Number.isFinite(node.y)) node.y = 0;
     if (node.width != null && (typeof node.width !== 'number' || node.width <= 0)) delete node.width;
     if (node.title != null && typeof node.title !== 'string') node.title = String(node.title);
     if (node.items != null && !Array.isArray(node.items)) {
-      warnings.push(`nodes[${i}]: items が配列でないため無視しました`);
+      warnings.push(`${path}: items が配列でないため無視しました`);
       node.items = [];
     }
     if (node.items) {
@@ -116,18 +145,39 @@ export function validate(data) {
           if (item.id == null) item.id = uid('i');
           item.id = String(item.id);
           if (itemIds.has(item.id)) {
-            warnings.push(`nodes[${i}]: 項目 id "${item.id}" が重複しているため付け替えました`);
+            warnings.push(`${path}: 項目 id "${item.id}" が重複しているため付け替えました`);
             item.id = uid('i');
           }
           itemIds.add(item.id);
           return item;
         });
     }
-    nodes.push(node);
+    // 親から渡される座標は自動配置で上書きされるため、入力の parent は無視する
+    delete node.parent;
+    if (node.childs != null && !Array.isArray(node.childs)) {
+      warnings.push(`${path}: childs が配列でないため無視しました`);
+      delete node.childs;
+    }
+    if (node.childs) {
+      const kids = [];
+      node.childs.forEach((c, k) => {
+        const child = normalizeNode(c, `${path}.childs[${k}]`);
+        if (child) kids.push(child);
+      });
+      if (kids.length) node.childs = kids;
+      else delete node.childs;
+    }
+    flat.push(node);
+    return node;
+  };
+
+  rawNodes.forEach((n, i) => {
+    const node = normalizeNode(n, `nodes[${i}]`);
+    if (node) nodes.push(node);
   });
   if (errors.length) return { ok: false, errors };
 
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const nodeMap = new Map(flat.map((n) => [n.id, n]));
   const edges = [];
   const edgeIds = new Set();
   rawEdges.forEach((e, i) => {
@@ -175,19 +225,22 @@ function portExists(node, key, dir) {
  */
 export function remapForMerge(data, graph, { offset, forceNewIds = false } = {}) {
   const idMap = new Map();
-  const nodes = data.nodes.map((n) => {
-    const copy = structuredClone(n);
+  const remapNode = (n, isRoot) => {
+    const copy = { ...structuredClone(n) };
     if (forceNewIds || graph.nodes.has(copy.id)) {
       const next = uid('n');
       idMap.set(copy.id, next);
       copy.id = next;
     }
-    if (offset) {
+    if (isRoot && offset) {
       copy.x += offset.x;
       copy.y += offset.y;
     }
+    // 子ノードは親が自動配置するのでオフセットは不要。id だけ付け替える
+    if (Array.isArray(copy.childs)) copy.childs = copy.childs.map((c) => remapNode(c, false));
     return copy;
-  });
+  };
+  const nodes = data.nodes.map((n) => remapNode(n, true));
   const edges = data.edges.map((e) => {
     const copy = structuredClone(e);
     copy.source = idMap.get(copy.source) ?? copy.source;

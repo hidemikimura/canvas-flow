@@ -151,6 +151,16 @@ export class History extends Emitter {
       case 'nodes:move':
         g.moveNodes(op.ids, inverse ? -op.dx : op.dx, inverse ? -op.dy : op.dy);
         break;
+      case 'node:parent': {
+        const state = inverse ? op.before : op.after;
+        g.setParent(op.id, state.parent ?? null, state.index ?? undefined);
+        if (!state.parent && (state.x != null || state.y != null)) {
+          const patch = { x: state.x, y: state.y };
+          if (state.width != null) patch.width = state.width;
+          g.updateNode(op.id, patch);
+        }
+        break;
+      }
       case 'edge:add':
         if (inverse) g.removeEdge(op.edge.id);
         else g.restoreEdge(op.edge);

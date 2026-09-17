@@ -148,6 +148,7 @@
     </select>
   </label>
   <button id="add">ノード追加</button>
+  <button id="add-child" title="選択したノードの中に子ノードを追加">子ノード追加</button>
   <button id="insert">テンプレート挿入</button>
   <label><input type="checkbox" id="dark" /> ダークテーマ</label>
   <label><input type="checkbox" id="readonly" /> 読み取り専用</label>
@@ -171,7 +172,7 @@
 &lt;/script&gt;
 
 &lt;canvas-flow-editor minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;</code></pre>
-      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.1.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
+      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.2.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
     </div>
     <div>
       <h3>操作</h3>
@@ -255,11 +256,24 @@
       }
       nodes.push({
         id: `n${i}`, type, title: `${type} #${i}`,
-        x: col * 280, y: row * 160 + (col % 2) * 20,
+        x: col * 280, y: row * 260 + (col % 2) * 20,
         input: true,
         output: type === 'note' ? { max: 3, visible: false } : { max: 3 },  // note は端子を隠す
         items,
+        // 9 個ごとに 1 つ、中に子ノードを持つノードを作る（子の位置と幅は親が自動計算）
+        ...(i % 9 === 4
+          ? {
+              childs: [
+                { id: `n${i}c0`, type: 'input', title: `child A of #${i}`, input: true, output: true,
+                  items: [{ id: 'p0', label: 'value', value: 'a', input: { max: 1 }, output: true }] },
+                { id: `n${i}c1`, type: 'output', title: `child B of #${i}`, input: true, output: true,
+                  childs: [{ id: `n${i}c2`, type: 'note', title: `grandchild of #${i}`, input: true, output: true }] },
+              ],
+            }
+          : null),
       });
+      // 子ノードは外のノードとも自由に接続できる
+      if (i % 9 === 4 && i > 0) edges.push({ id: `e${i}c`, source: `n${i}c0`, sourcePort: 'out', target: `n${i - 1}`, targetPort: 'in' });
       if (col > 0) edges.push({ id: `e${i}a`, source: `n${i - 1}`, sourcePort: 'item:p0:out', target: `n${i}`, targetPort: 'item:p0:in' });
       if (row > 0 && i % 3 === 0) edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
     }
@@ -340,6 +354,13 @@
   $('edge-type').addEventListener('change', (e) => el.setSelectedEdgeType(e.target.value));
   $('snap').addEventListener('change', (e) => { el.moveSnap = Number(e.target.value); });
   $('dragmode').addEventListener('change', (e) => { el.dragMode = e.target.value; });
+  $('add-child').addEventListener('click', () => {
+    if (typeof el.addChild !== 'function') return log('子ノードは読み込み中のバージョンでは未対応です');
+    const id = el.editor?.selection.nodes.values().next().value;
+    if (!id) return log('ノードを選択してください');
+    const child = el.addChild(id, { type: 'process', title: `子 ${el.childrenOf(id).length + 1}`, input: true, output: true, items: [{ id: 'p0', label: 'value', value: '0', input: true, output: true }] });
+    if (child) el.editor.select({ nodes: [child.id] });
+  });
   $('add').addEventListener('click', () => el.addNodeAtCenter({ type: 'process', title: '新しいノード', input: true, output: true, items: [{ id: 'p0', label: 'value', value: '0', input: true, output: true }] }));
   $('insert').addEventListener('click', () => el.insertJSON(TEMPLATE, { anchor: 'origin' }));
   $('readonly').addEventListener('change', (e) => { el.readOnly = e.target.checked; });

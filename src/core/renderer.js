@@ -108,14 +108,16 @@ export class Renderer {
       }
 
       // --- ノード ---
+      // 子ノードは親の描画から再帰で描くので、ここでは親を持たないものだけ回す
       nodes = this.graph.nodesInRect(visible);
+      const roots = nodes.filter((n) => !this.graph.isChild(n));
       if (focus) {
         ctx.globalAlpha = dimAlpha;
-        for (const n of nodes) if (!focus.nodes.has(n.id)) this._drawNode(n, state, lod);
+        for (const n of roots) if (!focus.nodes.has(n.id)) this._drawNode(n, state, lod);
         this._flushPorts();
         ctx.globalAlpha = 1;
       }
-      for (const n of nodes) {
+      for (const n of roots) {
         if (focus && !focus.nodes.has(n.id)) continue;
         this._drawNode(n, state, lod);
       }
@@ -179,6 +181,7 @@ export class Renderer {
       ctx.beginPath();
       for (const n of nodes) {
         if (state.selectedNodes.has(n.id)) continue;
+        if (graph.isChild(n)) continue;
         if (pass === 'dim' && focus.nodes.has(n.id)) continue;
         if (pass === 'focus' && !focus.nodes.has(n.id)) continue;
         const r = graph.nodeRect(n);
@@ -401,7 +404,10 @@ export class Renderer {
     ctx.lineWidth = (selected ? st.selectedStrokeWidth : st.strokeWidth) / vp.zoom;
     ctx.stroke();
 
-    if (lod) return;
+    if (lod) {
+      for (const child of graph.childrenOf(node)) this._drawNode(child, state, lod);
+      return;
+    }
 
     // タイトル
     ctx.font = theme.titleFont;
@@ -440,8 +446,11 @@ export class Renderer {
       }
     }
 
-    // リサイズグリップ（選択中 / ホバー中のみ）
-    if (selected || hover) {
+    // 子ノード（項目の下に縦に並ぶ。座標は Graph が計算済み）
+    for (const child of graph.childrenOf(node)) this._drawNode(child, state, lod);
+
+    // リサイズグリップ（選択中 / ホバー中のみ。子は親から幅をもらうので出さない）
+    if ((selected || hover) && !graph.isChild(node)) {
       const g = Math.min(10, rect.w / 4, rect.h / 4);
       const x1 = rect.x + rect.w - 3;
       const y1 = rect.y + rect.h - 3;

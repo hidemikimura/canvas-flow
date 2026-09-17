@@ -20,6 +20,10 @@ export const defaultTheme = {
     itemSeparator: '#eef1f5',
     padding: 8,
     width: 200,
+    /** 子ノードを親の左右からどれだけ内側に置くか */
+    childIndent: 10,
+    /** 子ノードどうしの縦の間隔 */
+    childGap: 6,
     selectedStroke: '#3b82f6',
     selectedStrokeWidth: 2,
     hoverStroke: '#93c5fd',

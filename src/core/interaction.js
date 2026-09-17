@@ -314,9 +314,16 @@ export class Interaction {
         if (ed.options.readOnly) return void (this._mode = null);
         this._mode = 'drag';
         ed.history.begin('move');
-        d.startPositions = ed.selectedNodes.map((n) => ({ id: n.id, x: n.x, y: n.y }));
-        // スナップ用: クリックしたノードを基準にし、実際に適用した移動量を別に持つ
-        const anchorId = ed.selection.nodes.has(d.hit.node.id) ? d.hit.node.id : d.startPositions[0]?.id;
+        // 子ノードは自分で座標を持たないので、実際に動かすのは一番外側の親
+        const roots = new Map();
+        for (const n of ed.selectedNodes) {
+          const root = ed.graph.rootOf(n) ?? n;
+          if (!roots.has(root.id)) roots.set(root.id, { id: root.id, x: root.x, y: root.y });
+        }
+        d.startPositions = [...roots.values()];
+        // スナップ用: 掴んだノード（子ならその親）を基準にし、実際に適用した移動量を別に持つ
+        const grabbed = ed.graph.rootOf(d.hit.node) ?? d.hit.node;
+        const anchorId = roots.has(grabbed.id) ? grabbed.id : d.startPositions[0]?.id;
         d.anchorStart = d.startPositions.find((p) => p.id === anchorId) ?? d.startPositions[0];
         d.applied = { x: 0, y: 0 };
       } else if (d.target === 'box') {

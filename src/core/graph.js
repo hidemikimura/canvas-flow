@@ -203,6 +203,8 @@ export class Graph extends Emitter {
     this.edges = new Map();
     /** ノード ID → 接続エッジ ID */
     this._adjacency = new Map();
+    /** 親ノード ID → 子ノード ID の並び（表示順） */
+    this._children = new Map();
     this.nodeIndex = new SpatialIndex(cellSize);
     this.edgeIndex = new SpatialIndex(cellSize);
     this.layout = {
@@ -215,6 +217,10 @@ export class Graph extends Emitter {
       edgeType: 'bezier',
       /** step のときの水平方向の最小突き出し量 */
       stepOffset: 24,
+      /** 子ノードを親の左右からどれだけ内側に置くか */
+      childIndent: 10,
+      /** 子ノードどうしの縦の間隔 */
+      childGap: 6,
       ...layout,
     };
     /**
@@ -236,25 +242,158 @@ export class Graph extends Emitter {
     this.reindexAll();
   }
 
-  nodeWidth(node) {
-    return node.width ?? this.layout.defaultWidth;
+  nodeWidth(nodeOrId) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    return node?.width ?? this.layout.defaultWidth;
   }
 
-  nodeHeight(node) {
-    const { headerHeight, itemHeight, padding } = this.layout;
+  /* ---------- 親子 ---------- */
+
+  /** 子ノードの配列（表示順）。子を持たなければ空配列 */
+  childrenOf(nodeOrId) {
+    const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
+    const ids = this._children.get(id);
+    if (!ids || !ids.length) return [];
+    const out = [];
+    for (const cid of ids) {
+      const c = this.nodes.get(cid);
+      if (c) out.push(c);
+    }
+    return out;
+  }
+
+  /** 子ノードかどうか */
+  isChild(nodeOrId) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    return !!(node && node.parent && this.nodes.has(node.parent));
+  }
+
+  /** 親ノード（無ければ null） */
+  parentOf(nodeOrId) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    return node?.parent ? (this.nodes.get(node.parent) ?? null) : null;
+  }
+
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootOf(nodeOrId) {
+    let node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!node) return null;
+    const seen = new Set();
+    while (node.parent && this.nodes.has(node.parent) && !seen.has(node.id)) {
+      seen.add(node.id);
+      node = this.nodes.get(node.parent);
+    }
+    return node;
+  }
+
+  /** 入れ子の深さ（root は 0） */
+  depthOf(nodeOrId) {
+    let node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    let d = 0;
+    while (node?.parent && this.nodes.has(node.parent) && d < 64) {
+      node = this.nodes.get(node.parent);
+      d++;
+    }
+    return d;
+  }
+
+  /** 自分を含む子孫すべての ID（深さ優先） */
+  descendantIds(nodeOrId, { includeSelf = false } = {}) {
+    const root = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!root) return [];
+    const out = includeSelf ? [root.id] : [];
+    const walk = (n) => {
+      for (const c of this.childrenOf(n)) {
+        out.push(c.id);
+        walk(c);
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  nodeWidthOfChild(parent) {
+    return Math.max(20, this.nodeWidth(parent) - this.layout.childIndent * 2);
+  }
+
+  /** 項目ブロックの高さ（上下の余白込み。項目が無ければ 0） */
+  _itemsHeight(node) {
     const n = node.items ? node.items.length : 0;
-    return headerHeight + (n > 0 ? n * itemHeight + padding : 0);
+    return n > 0 ? n * this.layout.itemHeight + this.layout.padding : 0;
   }
 
-  /** @returns {{x:number,y:number,w:number,h:number}} */
-  nodeRect(node) {
+  /** 子ブロックの高さ（上下の余白込み。子が無ければ 0） */
+  _childrenHeight(node) {
+    let kids = this.childrenOf(node);
+    // まだグラフに追加されていない入力ノード（JSON など）は childs を直接見る
+    if (!kids.length && Array.isArray(node.childs) && !this.nodes.has(node.id)) kids = node.childs;
+    if (!kids.length) return 0;
+    const { childGap, padding } = this.layout;
+    let h = padding;
+    kids.forEach((c, i) => {
+      if (i) h += childGap;
+      h += this.nodeHeight(c);
+    });
+    return h;
+  }
+
+  nodeHeight(nodeOrId) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!node) return 0;
+    return this.layout.headerHeight + this._itemsHeight(node) + this._childrenHeight(node);
+  }
+
+  /**
+   * 子ノードの x / y / width を親から計算して書き戻す（子は自分で座標を持たない）。
+   * 親が動いたとき・構成が変わったときに呼ぶ。子孫まで再帰する。
+   */
+  relayoutChildren(nodeOrId, { reindex = true } = {}) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!node) return;
+    const kids = this.childrenOf(node);
+    if (!kids.length) return;
+    const { headerHeight, padding, childIndent, childGap } = this.layout;
+    const w = this.nodeWidthOfChild(node);
+    let y = node.y + headerHeight + this._itemsHeight(node) + padding / 2;
+    for (const c of kids) {
+      c.x = node.x + childIndent;
+      c.y = y;
+      c.width = w;
+      this.relayoutChildren(c, { reindex });
+      if (reindex) this.nodeIndex.update(c.id, this.nodeRect(c));
+      y += this.nodeHeight(c) + childGap;
+    }
+  }
+
+  /** 一番外側の親から配置をやり直す（子の座標が絡む変更のあと） */
+  _relayoutFrom(nodeOrId) {
+    const root = this.rootOf(nodeOrId);
+    if (!root) return;
+    this.relayoutChildren(root);
+    for (const id of this.descendantIds(root, { includeSelf: true })) {
+      const n = this.nodes.get(id);
+      if (n) this.nodeIndex.update(id, this.nodeRect(n));
+      for (const eid of this._adjacency.get(id) ?? []) this._reindexEdge(this.edges.get(eid));
+    }
+  }
+
+  /** ポートを描く左右の X（子ノードは一番外側の親の縁に出す） */
+  portEdgeX(node) {
+    const root = this.rootOf(node) ?? node;
+    return { in: root.x, out: root.x + this.nodeWidth(root) };
+  }
+
+  /** @returns {{x:number,y:number,w:number,h:number}|null} */
+  nodeRect(nodeOrId) {
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!node) return null;
     return { x: node.x, y: node.y, w: this.nodeWidth(node), h: this.nodeHeight(node) };
   }
 
   /** 全ポートの位置一覧を返す */
   nodePorts(node, { visibleOnly = false } = {}) {
     const { headerHeight, itemHeight, padding } = this.layout;
-    const w = this.nodeWidth(node);
+    const edge = this.portEdgeX(node);
     const ports = [];
     const push = (owner, spec, key, dir, itemId, x, y) => {
       if (!spec) return;
@@ -262,14 +401,14 @@ export class Graph extends Emitter {
       if (visibleOnly && !visible) return;
       ports.push({ key, dir, itemId, x, y, visible });
     };
-    push(node, node.input, 'in', 'in', null, node.x, node.y + headerHeight / 2);
-    push(node, node.output, 'out', 'out', null, node.x + w, node.y + headerHeight / 2);
+    push(node, node.input, 'in', 'in', null, edge.in, node.y + headerHeight / 2);
+    push(node, node.output, 'out', 'out', null, edge.out, node.y + headerHeight / 2);
     if (node.items) {
       let y = node.y + headerHeight + padding / 2;
       for (const item of node.items) {
         const cy = y + itemHeight / 2;
-        push(item, item.input, portKey(item.id, 'in'), 'in', item.id, node.x, cy);
-        push(item, item.output, portKey(item.id, 'out'), 'out', item.id, node.x + w, cy);
+        push(item, item.input, portKey(item.id, 'in'), 'in', item.id, edge.in, cy);
+        push(item, item.output, portKey(item.id, 'out'), 'out', item.id, edge.out, cy);
         y += itemHeight;
       }
     }
@@ -334,7 +473,8 @@ export class Graph extends Emitter {
     const parsed = parsePortKey(key);
     if (!parsed) return null;
     const { headerHeight, itemHeight, padding } = this.layout;
-    const x = parsed.dir === 'in' ? node.x : node.x + this.nodeWidth(node);
+    const edgeX = this.portEdgeX(node);
+    const x = parsed.dir === 'in' ? edgeX.in : edgeX.out;
     if (parsed.itemId == null) {
       if (parsed.dir === 'in' && !node.input) return null;
       if (parsed.dir === 'out' && !node.output) return null;
@@ -432,9 +572,16 @@ export class Graph extends Emitter {
   /* ---------- ノード ---------- */
 
   /** @param {Partial<Node>} input */
-  addNode(input) {
+  /**
+   * ノードを追加する。`childs` に入れ子のノードを書くと子ノードとして一緒に登録される。
+   * 子の x / y / width は親から自動計算されるので、JSON 上の値は無視される。
+   * @param {object} input
+   * @param {{parent?: string, index?: number}} [options] 内部用（子として追加するとき）
+   */
+  addNode(input, { parent = input?.parent ?? null, index } = {}) {
+    const { childs, parent: _p, ...rest } = input;
     const node = {
-      ...input,
+      ...rest,
       id: input.id ?? uid('n'),
       title: input.title ?? 'Node',
       x: input.x ?? 0,
@@ -442,13 +589,99 @@ export class Graph extends Emitter {
       items: (input.items ?? []).map((it) => ({ ...it, id: it.id ?? uid('i') })),
     };
     if (this.nodes.has(node.id)) throw new Error(`duplicate node id: ${node.id}`);
+    if (parent && this.nodes.has(parent)) {
+      node.parent = parent;
+    } else {
+      delete node.parent;
+    }
     this.nodes.set(node.id, node);
     this._adjacency.set(node.id, new Set());
+    if (node.parent) {
+      const list = this._children.get(node.parent) ?? [];
+      if (index == null || index < 0 || index >= list.length) list.push(node.id);
+      else list.splice(index, 0, node.id);
+      this._children.set(node.parent, list);
+    }
     this.nodeIndex.insert(node.id, this.nodeRect(node));
     this.emit('node:add', node);
-    this._op(() => ({ type: 'node:add', node: structuredClone(node) }));
+    this._op(() => ({ type: 'node:add', node: structuredClone(node), parent: node.parent ?? null }));
+    // 入れ子の子を先に登録してから配置し直す
+    if (Array.isArray(childs) && childs.length) {
+      this.batch(() => {
+        for (const child of childs) this.addNode(child, { parent: node.id });
+      });
+    }
+    if (node.parent || this._children.get(node.id)?.length) this._relayoutFrom(node);
     this._changed();
     return node;
+  }
+
+  /**
+   * 既存ノードを別ノードの子にする（Undo 可）。`index` で並び順を指定できる。
+   * 自分の子孫を親にすることはできない。
+   */
+  addChild(parentId, child, index) {
+    const parent = this.nodes.get(parentId);
+    if (!parent) return null;
+    if (typeof child === 'string') {
+      const node = this.nodes.get(child);
+      if (!node || node.id === parentId) return null;
+      if (this.descendantIds(node, { includeSelf: true }).includes(parentId)) return null;
+      return this.setParent(node.id, parentId, index) ? node : null;
+    }
+    return this.addNode(child, { parent: parentId, index });
+  }
+
+  /** 親子関係を付け替える。`parentId` を null にすると独立させる（Undo 可） */
+  setParent(id, parentId, index) {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    const next = parentId && this.nodes.has(parentId) ? parentId : null;
+    if (next && this.descendantIds(node, { includeSelf: true }).includes(next)) return false;
+    const prevList = node.parent ? this._children.get(node.parent) : null;
+    const before = {
+      parent: node.parent ?? null,
+      index: prevList ? prevList.indexOf(id) : null,
+      x: node.x,
+      y: node.y,
+      width: node.width,
+    };
+    if (before.parent === next && index == null) return false;
+    this.batch(() => {
+      const oldRoot = this.rootOf(node);
+      if (node.parent) {
+        const list = this._children.get(node.parent);
+        if (list) this._children.set(node.parent, list.filter((cid) => cid !== id));
+      }
+      if (next) {
+        node.parent = next;
+        const list = this._children.get(next) ?? [];
+        if (index == null || index < 0 || index >= list.length) list.push(id);
+        else list.splice(index, 0, id);
+        this._children.set(next, list);
+      } else {
+        delete node.parent;
+      }
+      this.emit('node:change', node);
+      this._op(() => ({ type: 'node:parent', id, before, after: { parent: next, index: index ?? null } }));
+      if (oldRoot && oldRoot.id !== id) this._relayoutFrom(oldRoot);
+      this._relayoutFrom(node);
+      this._changed();
+    });
+    return true;
+  }
+
+  /** 子を親から外して独立させる（Undo 可）。x / y を渡すとその位置に置く */
+  removeChild(id, { x, y } = {}) {
+    const node = this.nodes.get(id);
+    if (!node || !node.parent) return null;
+    let out = null;
+    this.batch(() => {
+      if (!this.setParent(id, null)) return;
+      out = node;
+      if (x != null || y != null) this.updateNode(id, { x: x ?? node.x, y: y ?? node.y });
+    });
+    return out;
   }
 
   getNode(id) {
@@ -472,7 +705,12 @@ export class Graph extends Emitter {
   /** ノード全体をスナップショットで置き換える（履歴の復元用） */
   restoreNode(snapshot) {
     const node = this.nodes.get(snapshot.id);
-    if (!node) return this.addNode(structuredClone(snapshot));
+    if (!node) {
+      const clone = structuredClone(snapshot);
+      const parent = clone.parent ?? null;
+      delete clone.parent;
+      return this.addNode(clone, { parent });
+    }
     const before = structuredClone(node);
     for (const k of Object.keys(node)) if (!(k in snapshot)) delete node[k];
     Object.assign(node, structuredClone(snapshot));
@@ -538,35 +776,73 @@ export class Graph extends Emitter {
   }
 
   /** 複数ノードを移動（ドラッグ用）。接続エッジのインデックスも更新する */
+  /**
+   * 複数ノードを相対移動する。子ノードは自分で座標を持たないので、
+   * 子の ID を渡した場合は一番外側の親を動かす（重複は 1 回だけ）。
+   */
   moveNodes(ids, dx, dy) {
     if (dx === 0 && dy === 0) return;
-    const touchedEdges = new Set();
+    const roots = [];
+    const seen = new Set();
     for (const id of ids) {
+      const root = this.rootOf(id);
+      if (!root || seen.has(root.id)) continue;
+      seen.add(root.id);
+      roots.push(root.id);
+    }
+    if (!roots.length) return;
+    const touchedEdges = new Set();
+    for (const id of roots) {
       const node = this.nodes.get(id);
-      if (!node) continue;
       node.x += dx;
       node.y += dy;
       this.nodeIndex.update(id, this.nodeRect(node));
       for (const eid of this._adjacency.get(id)) touchedEdges.add(eid);
+      // 子は親に追従する
+      for (const cid of this.descendantIds(node)) {
+        const c = this.nodes.get(cid);
+        if (!c) continue;
+        c.x += dx;
+        c.y += dy;
+        this.nodeIndex.update(cid, this.nodeRect(c));
+        for (const eid of this._adjacency.get(cid) ?? []) touchedEdges.add(eid);
+      }
     }
     for (const eid of touchedEdges) this._reindexEdge(this.edges.get(eid));
-    this.emit('nodes:move', { ids, dx, dy });
-    this._op(() => ({ type: 'nodes:move', ids: [...ids], dx, dy }));
+    this.emit('nodes:move', { ids: roots, dx, dy });
+    this._op(() => ({ type: 'nodes:move', ids: roots, dx, dy }));
     this._changed();
   }
 
+  /** ノードを削除する。子ノードがあれば一緒に消える（接続コネクタも） */
   removeNode(id) {
     const node = this.nodes.get(id);
     if (!node) return false;
+    const parent = node.parent;
     this.batch(() => {
-      for (const eid of [...this._adjacency.get(id)]) this.removeEdge(eid);
-      this.nodes.delete(id);
-      this._adjacency.delete(id);
-      this.nodeIndex.remove(id);
-      this.emit('node:remove', node);
-      this._op(() => ({ type: 'node:remove', node: structuredClone(node) }));
-      this._changed();
+      // 深い子から消していく
+      for (const cid of this.descendantIds(node).reverse()) this._removeNodeOnly(cid);
+      this._removeNodeOnly(id);
+      if (parent && this.nodes.has(parent)) this._relayoutFrom(parent);
     });
+    return true;
+  }
+
+  _removeNodeOnly(id) {
+    const node = this.nodes.get(id);
+    if (!node) return false;
+    for (const eid of [...(this._adjacency.get(id) ?? [])]) this.removeEdge(eid);
+    if (node.parent) {
+      const list = this._children.get(node.parent);
+      if (list) this._children.set(node.parent, list.filter((cid) => cid !== id));
+    }
+    this._children.delete(id);
+    this.nodes.delete(id);
+    this._adjacency.delete(id);
+    this.nodeIndex.remove(id);
+    this.emit('node:remove', node);
+    this._op(() => ({ type: 'node:remove', node: structuredClone(node), parent: node.parent ?? null }));
+    this._changed();
     return true;
   }
 
@@ -579,6 +855,8 @@ export class Graph extends Emitter {
   _reindexNode(node) {
     this.nodeIndex.update(node.id, this.nodeRect(node));
     for (const eid of this._adjacency.get(node.id)) this._reindexEdge(this.edges.get(eid));
+    // 高さ・幅が変わると親の枠と兄弟の位置も動く（親子が絡まないノードでは何もしない）
+    if (node.parent || this._children.get(node.id)?.length) this._relayoutFrom(node);
   }
 
   /* ---------- ポートの接続数 ---------- */
@@ -814,6 +1092,7 @@ export class Graph extends Emitter {
   reindexAll() {
     this.nodeIndex.clear();
     this.edgeIndex.clear();
+    for (const n of this.nodes.values()) if (!this.isChild(n)) this.relayoutChildren(n, { reindex: false });
     for (const n of this.nodes.values()) this.nodeIndex.insert(n.id, this.nodeRect(n));
     for (const e of this.edges.values()) this._reindexEdge(e);
   }
@@ -829,6 +1108,11 @@ export class Graph extends Emitter {
   }
 
   /** 矩形に完全に含まれるノード（範囲選択用） */
+  /** 親を持たないノードだけ（範囲選択や全体表示の対象） */
+  rootNodes() {
+    return [...this.nodes.values()].filter((n) => !this.isChild(n));
+  }
+
   nodesFullyInRect(rect) {
     return this.nodesInRect(rect).filter((n) => {
       const r = this.nodeRect(n);
@@ -857,21 +1141,37 @@ export class Graph extends Emitter {
    * @returns {{nodes: Node[], edges: Edge[], idMap: Map<string,string>}}
    */
   duplicateNodes(ids, offset = { x: 40, y: 40 }) {
-    const idSet = new Set(ids);
+    // 親も子も渡された場合、親を複製すれば子も付いてくるので子は除く
+    const given = new Set(ids);
+    const tops = [...given].filter((id) => {
+      let n = this.nodes.get(id);
+      while (n?.parent) {
+        if (given.has(n.parent)) return false;
+        n = this.nodes.get(n.parent);
+      }
+      return !!this.nodes.get(id);
+    });
+    const idSet = new Set();
+    for (const id of tops) for (const d of this.descendantIds(id, { includeSelf: true })) idSet.add(d);
     const idMap = new Map();
     const nodes = [];
     const edges = [];
     this.batch(() => {
-      for (const id of ids) {
-        const src = this.nodes.get(id);
-        if (!src) continue;
+      const copyTree = (srcId, parentId) => {
+        const src = this.nodes.get(srcId);
+        if (!src) return;
         const copy = structuredClone(src);
         copy.id = uid('n');
-        copy.x += offset.x;
-        copy.y += offset.y;
-        idMap.set(id, copy.id);
-        nodes.push(this.addNode(copy));
-      }
+        delete copy.parent;
+        if (!parentId) {
+          copy.x += offset.x;
+          copy.y += offset.y;
+        }
+        idMap.set(srcId, copy.id);
+        nodes.push(this.addNode(copy, { parent: parentId ?? null }));
+        for (const c of this.childrenOf(src)) copyTree(c.id, copy.id);
+      };
+      for (const id of tops) copyTree(id, null);
       const seen = new Set();
       for (const id of ids) {
         for (const e of this.edgesOf(id)) {
@@ -891,8 +1191,24 @@ export class Graph extends Emitter {
 
   /* ---------- 直列化 ---------- */
 
+  /**
+   * 直列化する。子ノードは親の `childs` に入れ子で入り、トップレベルの `nodes` には
+   * 親を持たないノードだけが並ぶ。子の x / y / width は自動計算なので出力しない。
+   */
   toJSON() {
-    return { nodes: [...this.nodes.values()], edges: [...this.edges.values()] };
+    const pack = (node) => {
+      const { parent, ...rest } = node;
+      const kids = this.childrenOf(node);
+      if (parent) {
+        delete rest.x;
+        delete rest.y;
+        delete rest.width;
+      }
+      if (kids.length) rest.childs = kids.map(pack);
+      return rest;
+    };
+    const roots = [...this.nodes.values()].filter((n) => !this.isChild(n));
+    return { nodes: roots.map(pack), edges: [...this.edges.values()] };
   }
 
   /** 既存内容を置き換えて読み込む */
@@ -915,6 +1231,7 @@ export class Graph extends Emitter {
     this.nodes.clear();
     this.edges.clear();
     this._adjacency.clear();
+    this._children.clear();
     this.nodeIndex.clear();
     this.edgeIndex.clear();
     this.emit('clear');

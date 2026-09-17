@@ -118,6 +118,13 @@ export interface Node {
   /** false でこのノードのポートをまとめて非表示 */
   showPorts?: boolean;
   items?: NodeItem[];
+  /**
+   * 子ノード。親の項目の下に縦に並び、位置と幅は親が自動計算する
+   * （子の `x` / `y` / `width` は無視される）。JSON の入出力にも使う。
+   */
+  childs?: ChildNodeInput[];
+  /** 親ノードの id（子ノードにのみ入る。読み取り専用。`setParent()` で変更する） */
+  parent?: string;
   /** `theme.node.*` の上書き */
   style?: Partial<NodeStyle>;
   data?: unknown;
@@ -125,6 +132,16 @@ export interface Node {
 
 /** `addNode()` に渡す値。id は省略すると自動生成される */
 export type NodeInput = Omit<Node, 'id'> & { id?: string };
+
+/**
+ * 子ノードに渡す値。位置と幅は親が自動計算するので x / y / width は不要
+ * （渡しても無視される）。
+ */
+export type ChildNodeInput = Omit<NodeInput, 'x' | 'y' | 'width'> & {
+  x?: number;
+  y?: number;
+  width?: number;
+};
 
 export type EdgeType = 'bezier' | 'straight' | 'step';
 
@@ -196,6 +213,10 @@ export interface NodeStyle {
   itemSeparator: string;
   padding: number;
   width: number;
+  /** 子ノードを親の左右からどれだけ内側に置くか */
+  childIndent: number;
+  /** 子ノードどうしの縦の間隔 */
+  childGap: number;
   selectedStroke: string;
   selectedStrokeWidth: number;
   hoverStroke: string;
@@ -301,6 +322,10 @@ export interface GraphLayout {
   curvature: number;
   edgeType: EdgeType;
   stepOffset: number;
+  /** 子ノードの左右インデント */
+  childIndent: number;
+  /** 子ノード同士の縦の間隔 */
+  childGap: number;
 }
 
 /* ============================================================
@@ -573,9 +598,14 @@ export class Graph extends Emitter<GraphEvents> {
   setLayout(layout: Partial<GraphLayout>): void;
 
   /* 座標 */
-  nodeWidth(node: Node): number;
-  nodeHeight(node: Node): number;
-  nodeRect(node: Node): Rect;
+  nodeWidth(nodeOrId: Node | string): number;
+  /** ヘッダ＋項目＋子ノードの高さ */
+  nodeHeight(nodeOrId: Node | string): number;
+  nodeRect(nodeOrId: Node | string): Rect;
+  /** 子ノードの幅（親の幅からインデントを引いた値） */
+  nodeWidthOfChild(parent: Node | string): number;
+  /** ポートを描く左右の X（子ノードは一番外側の親の縁） */
+  portEdgeX(node: Node): { in: number; out: number };
   nodePorts(node: Node, options?: { visibleOnly?: boolean }): PortInfo[];
   portPosition(nodeOrId: Node | string, key: PortKey): Point | null;
   itemRect(node: Node, itemId: string): Rect | null;
@@ -585,7 +615,8 @@ export class Graph extends Emitter<GraphEvents> {
   edgeRect(edge: Edge): Rect | null;
 
   /* ノード */
-  addNode(input: NodeInput): Node;
+  /** `input.childs` があれば子ノードもまとめて追加する */
+  addNode(input: NodeInput, options?: { parent?: string | null; index?: number }): Node;
   getNode(id: string): Node | undefined;
   updateNode(id: string, patch: Partial<Node>): Node | null;
   /** 検証を省いてノードを戻す（履歴の復元用） */
@@ -593,9 +624,33 @@ export class Graph extends Emitter<GraphEvents> {
   updateItem(nodeId: string, itemId: string, patch: Partial<NodeItem>): Node | null;
   addItem(nodeId: string, item: NodeItem, index?: number): Node | null;
   removeItem(nodeId: string, itemId: string): Node | null;
+  /** 選択の移動。子ノードの id を渡すと一番外側の親ごと動く */
   moveNodes(ids: readonly string[], dx: number, dy: number): void;
+  /** 子孫ごと削除する */
   removeNode(id: string): boolean;
   removeNodes(ids: readonly string[]): void;
+  /** 親を持たないノードだけ */
+  rootNodes(): Node[];
+
+  /* 子ノード */
+  /** 子ノードを順番どおりに返す */
+  childrenOf(nodeOrId: Node | string): Node[];
+  /** 子ノードかどうか */
+  isChild(nodeOrId: Node | string): boolean;
+  parentOf(nodeOrId: Node | string): Node | null;
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootOf(nodeOrId: Node | string): Node | null;
+  /** 入れ子の深さ（親を持たないノードは 0） */
+  depthOf(nodeOrId: Node | string): number;
+  descendantIds(nodeOrId: Node | string, options?: { includeSelf?: boolean }): string[];
+  /** 子ノードを追加する（index で挿入位置を指定） */
+  addChild(parentId: string, child: ChildNodeInput, index?: number): Node | null;
+  /** 子ノードを親から外して独立したノードに戻す */
+  removeChild(id: string, position?: Point): Node | null;
+  /** 親を付け替える（parentId に null を渡すと独立。循環は拒否して false） */
+  setParent(id: string, parentId: string | null, index?: number): boolean;
+  /** 子ノードの x / y / width を親から計算して書き戻す（通常は自動） */
+  relayoutChildren(nodeOrId: Node | string, options?: { reindex?: boolean }): void;
 
   /* ポート */
   portSpec(nodeOrId: Node | string, key: PortKey): NormalizedPortSpec | null;
@@ -658,6 +713,7 @@ export class Graph extends Emitter<GraphEvents> {
   /** 複数の変更を 1 回の 'change' と 1 つの Undo 項目にまとめる */
   batch<T>(fn: () => T): T;
 
+  /** 子ノードは `childs` に入れ子で出力される */
   toJSON(): { nodes: Node[]; edges: Edge[] };
   load(data: { nodes?: Node[]; edges?: Edge[] }): void;
   clear(): void;
@@ -926,7 +982,20 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   nudgeSelection(stepsX: number, stepsY: number, options?: { pixels?: number }): void;
   setPortVisible(nodeId: string, portKey: PortKey, visible: boolean): boolean;
   setPortsVisible(nodeId: string, visible: boolean, itemId?: string): boolean;
+  /** 子ノードは幅を変えられないため null を返す */
   resizeNode(id: string, width: number): Node | null;
+
+  /* 子ノード */
+  /** 子ノードを追加する（Undo 可） */
+  addChild(parentId: string, child: ChildNodeInput, index?: number): Node | null;
+  /** 子を親から外して独立させる（Undo 可）。x / y を渡すとその位置に置く */
+  removeChild(id: string, position?: Point): Node | null;
+  /** 親子関係を付け替える（Undo 可）。parentId に null を渡すと独立させる */
+  setParent(id: string, parentId: string | null, index?: number): boolean;
+  /** 子ノードの配列（表示順） */
+  childrenOf(nodeOrId: Node | string): Node[];
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootNodeOf(nodeOrId: Node | string): Node | null;
 
   /* ノード追加 */
   addNodeAt(spec: NodeInput, options?: AddNodeAtOptions): Node | null;

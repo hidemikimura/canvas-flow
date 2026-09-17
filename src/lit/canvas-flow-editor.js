@@ -430,6 +430,32 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAtCenter(spec, options) {
     return this.editor?.addNodeAtCenter(spec, options) ?? null;
   }
+  /* ---------- 子ノード ---------- */
+
+  /** 子ノードを追加する */
+  addChild(parentId, child, index) {
+    return this.editor?.addChild(parentId, child, index) ?? null;
+  }
+  /**
+   * 子を親から外して独立させる。x / y を渡すとその位置に置く。
+   * （`removeChild` は DOM の予約名なので別名にしている）
+   */
+  detachChild(id, options) {
+    return this.editor?.removeChild(id, options) ?? null;
+  }
+  /** 親子関係を付け替える。parentId に null を渡すと独立させる */
+  setParent(id, parentId, index) {
+    return this.editor?.setParent(id, parentId, index) ?? false;
+  }
+  /** 子ノードの配列（表示順） */
+  childrenOf(nodeOrId) {
+    return this.editor?.childrenOf(nodeOrId) ?? [];
+  }
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootNodeOf(nodeOrId) {
+    return this.editor?.rootNodeOf(nodeOrId) ?? null;
+  }
+
   getPointer() {
     return this.editor?.getPointer() ?? null;
   }

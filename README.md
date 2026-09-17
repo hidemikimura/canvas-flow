@@ -12,6 +12,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - コネクタのホバー／選択時に中央へ削除アイコンを表示し、クリックで削除
 - コネクタの描画方法を曲線（ベジェ）／直線／直角（階段状）から選べる。全体の既定とコネクタ単位の両方で指定可
 - 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）
+- ノードの中に子ノードを入れられる（`childs`）。何段でも入れ子にでき、位置と幅は親が自動計算する
 - 自動整列（階層レイアウト）: コネクタが左から右へ流れ、他のノードの上を横切らないように並べ直す
 - Undo / Redo（ドラッグやリサイズは 1 操作にまとめて記録）
 - ノードの幅リサイズ（右下グリップ）
@@ -302,6 +303,57 @@ el.editor.graph.connectedTo(['n1'], { depth: 1, direction: 'lineage' });  // 純
 
 強調対象が変わると `focus-change`（`{ mode, direction, nodes, edges }`）が発火します。
 
+#### ノードの中の子ノード（`childs`）
+
+ノードに `childs` を持たせると、その中に子ノードが入ります。子ノードは親の項目の下に上から順に縦に積まれ、位置（`x` / `y`）と幅は親が自動計算します。何段でも入れ子にできます。
+
+```js
+el.addNode({
+  id: 'n0',
+  title: '親ノード',
+  x: 100, y: 50,
+  input: true, output: true,
+  items: [{ id: 'p0', label: 'value', input: true, output: true }],
+  childs: [
+    {
+      id: 'n1',
+      title: '子ノード',
+      input: true, output: true,
+      items: [{ id: 'p1', label: 'value', input: true, output: true }],
+      childs: [{ id: 'n2', title: '孫ノード', input: true, output: true }],  // 入れ子は何段でも
+    },
+  ],
+});
+```
+
+子ノードの扱いは次のとおりです。
+
+- **自動配置**: 親の項目の下に縦に並ぶ。`x` / `y` / `width` を指定しても無視される（親の幅から `theme.node.childIndent` の 2 倍だけ狭くなる）
+- **親の高さ**: 子ブロックの分だけ親が自動的に高くなる。孫まで含めて計算される
+- **移動**: 子だけを動かすことはできない。子をドラッグすると一番外側の親ごと動く
+- **ポート**: 子もヘッダポートと項目ポートを持ち、外のノードとも自由に接続できる。端子の丸は一番外側の親の左右の縁に並ぶ
+- **削除・複製**: 親を削除すると子孫もまとめて消える。複製は部分木ごとコピーされる
+- **幅リサイズ**: 子ノードは親に追従するのでリサイズできない
+
+親子関係はあとから変更できます（いずれも Undo 可）。
+
+```js
+el.addChild('n0', { title: '子ノード' });      // 末尾に追加（第 3 引数で挿入位置を指定）
+el.detachChild('n1', { x: 400, y: 200 });      // 親から出して独立したノードに戻す
+el.setParent('n1', 'n0', 0);                   // 親を付け替える（先頭に挿入）
+el.setParent('n1', null);                      // 独立させる
+el.childrenOf('n0');                           // 子ノードの配列（表示順）
+el.rootNodeOf('n2');                           // 一番外側の親（自分が子でなければ自分自身）
+```
+
+コアの `Graph` には `childrenOf` / `isChild` / `parentOf` / `rootOf` / `depthOf` / `descendantIds` / `addChild` / `removeChild` / `setParent` / `rootNodes` があります（Web Component では DOM の予約名を避けて `removeChild` → `detachChild`）。自分の子孫を親にするような循環は `setParent` が `false` を返して拒否します。
+
+インデントと間隔はテーマで変えられます。
+
+```js
+el.theme = { node: { childIndent: 16, childGap: 10 } };   // editor.setTheme(...) でも同じ
+```
+
 #### 選択範囲内のコネクタだけを削除
 
 範囲選択したあと、ノードは残してコネクタだけを外したいときに使います。ツールバーの「コネクタ削除」ボタン、Shift + Delete、または `deleteSelectedEdges(options)` で実行でき、1 回の Undo で戻ります。
@@ -391,6 +443,9 @@ editor.on('selection:change', console.log);
   output: { max: 3 },       // ヘッダ右に出力ポート。ここから開始できるコネクタは 3 本まで
   items: [                  // 項目（行）。高さは項目数から自動計算
     { id: 'p0', label: 'value', value: '10', input: 1, output: true }, // 入力は 1 本まで
+  ],
+  childs: [                 // 任意。子ノード（位置と幅は親が自動計算）
+    { id: 'n2', title: '子ノード', input: true, output: true, items: [] },
   ],
   style: { headerFill: '#fee' }, // 任意。theme.node.* の上書き
   data: {},                 // 任意データ
@@ -500,13 +555,14 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
 {
   "format": "canvas-flow",
   "version": 1,
-  "nodes": [ { "id": "a", "title": "A", "x": 0, "y": 0, "items": [] } ],
+  "nodes": [ { "id": "a", "title": "A", "x": 0, "y": 0, "items": [], "childs": [] } ],
   "edges": [ { "id": "e1", "source": "a", "sourcePort": "out", "target": "b", "targetPort": "in" } ],
   "viewport": { "tx": 0, "ty": 0, "zoom": 1 }
 }
 ```
 
 `format` / `version` / `viewport` は省略可能で、プレーンな `{nodes, edges}` も読み込めます。
+子ノードは `nodes` の中に `childs` として入れ子で出力されます（トップレベルの `nodes` には親を持たないノードだけが並びます）。子ノードの `x` / `y` / `width` は親が決めるため出力されず、読み込み時に指定されていても無視されます。
 
 ### 使い方
 
@@ -772,11 +828,13 @@ URL の正規化は Workers の既定（`html_handling = "auto-trailing-slash"`�
 
 ## リリース手順（メンテナ向け）
 
-1. 変更内容を `CHANGELOG.md` の `Unreleased` に追記する
+1. 変更内容を `CHANGELOG.md` の `Unreleased` に追記し、リリース時に `## [X.Y.Z] - YYYY-MM-DD` の節へ移してリンクも更新する
 2. `npm run release:check`（テスト → 型定義の検証 → ビルド → `npm pack --dry-run` で同梱ファイルを確認）
-3. `npm version patch | minor | major`（`package.json` の更新と `vX.Y.Z` タグの作成）
-4. `npm publish`（`prepublishOnly` でテスト、`prepack` でビルドが走る。スコープ付きだが `publishConfig.access: "public"` を設定済みなので、初回も `npm publish` だけで公開される。うまくいかないときは `npm publish --access public`）
-5. `git push && git push --tags`
+3. `npm version patch | minor | major`（`package.json` の更新と `vX.Y.Z` タグの作成。先にバージョンを手で上げてある場合は `git tag vX.Y.Z`）
+4. `docs/api.html`・`docs/index.html`・`docs/demo.html` に書いてあるバージョン表記も合わせる
+5. `npm publish`（`prepublishOnly` でテスト、`prepack` でビルドが走る。スコープ付きだが `publishConfig.access: "public"` を設定済みなので `npm publish` だけで公開される。うまくいかないときは `npm publish --access public`）
+6. `git push && git push --tags`
+7. `npm run deploy:docs`（ドキュメントサイトを更新。GitHub に push すれば Cloudflare 側のビルドでも反映される）
 
 `files` に列挙したものだけが公開されます。新しく配布したいファイルを足したときは
 `npm pack --dry-run` で中身を確認してください。

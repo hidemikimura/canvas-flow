@@ -243,8 +243,48 @@ el.focusMode = 'connected';
 el.setFocusMode('neighbors', { depth: 2 });
 el.addEventListener('focus-change', (e) => console.log(e.detail.mode, e.detail.direction, e.detail.nodes.length));
 console.log(el.canUndo, el.toJSON().nodes.length);
+el.addChild('parent', { title: '子', items: [{ id: 'q', label: 'q', input: true }] });
+console.log(el.childrenOf('parent').length, el.rootNodeOf('parent')?.id);
+el.setParent('parent', null);
+console.log(el.detachChild('parent', { x: 10, y: 10 })?.id);
 const inst: CanvasFlowEditor = el;
 void inst;
+
+/* ---------- 子ノード ---------- */
+
+const withChildren = graph.addNode({
+  id: 'parent',
+  x: 0,
+  y: 0,
+  title: '親',
+  input: true,
+  output: true,
+  items: [{ id: 'p0', label: '項目', output: true }],
+  childs: [
+    {
+      id: 'kid',
+      title: '子',
+      input: true,
+      output: true,
+      items: [{ id: 'p1', label: '子の項目', input: true }],
+      childs: [{ title: '孫' }],
+    },
+  ],
+});
+console.log(withChildren.childs === undefined, graph.childrenOf(withChildren).length);
+console.log(graph.isChild('kid'), graph.depthOf('kid'), graph.parentOf('kid')?.id, graph.rootOf('kid')?.id);
+console.log(graph.descendantIds('parent', { includeSelf: true }).length, graph.rootNodes().length);
+console.log(graph.nodeWidthOfChild('parent'), graph.portEdgeX(graph.getNode('kid')!).out);
+graph.addChild('parent', { title: 'あとから追加' }, 0);
+graph.setParent('kid', null);
+graph.setParent('kid', 'parent', 1);
+graph.relayoutChildren('parent', { reindex: false });
+const detached = graph.removeChild('kid', { x: 400, y: 200 });
+console.log(detached?.x, graph.layout.childIndent, graph.layout.childGap);
+editor.addChild('parent', { title: 'エディタ経由' });
+console.log(editor.childrenOf('parent').length, editor.rootNodeOf('parent')?.id);
+editor.setParent('parent', null);
+console.log(editor.removeChild('parent')?.id);
 
 /* ---------- 間違った使い方はエラーになること ---------- */
 
@@ -266,3 +306,8 @@ editor.setTheme({ nodes: { fill: '#fff' } });
 editor.setFocusMode('everything');
 // @ts-expect-error 不正な向き
 graph.connectedTo(['n1'], { direction: 'sideways' });
+
+// @ts-expect-error childs の中身はノードの形でなければならない
+graph.addNode({ x: 0, y: 0, childs: ['child'] });
+// @ts-expect-error parentId は string か null
+graph.setParent('kid', 123);

@@ -102,7 +102,7 @@
 <div class="layout">
 <nav class="side" id="nav">
   <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
-  <div class="version">NodeEditor API 仕様書 · v0.1.0</div>
+  <div class="version">NodeEditor API 仕様書 · v0.2.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
@@ -122,6 +122,7 @@
     <li><a href="#m-selection">選択</a></li>
     <li><a href="#m-edit">編集コマンド</a></li>
     <li><a href="#m-add">ノード追加</a></li>
+    <li><a href="#m-childs">子ノード</a></li>
     <li><a href="#m-layout">自動整列</a></li>
     <li><a href="#m-history">Undo / Redo</a></li>
     <li><a href="#m-view">ビュー操作</a></li>
@@ -455,6 +456,41 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
 <p class="muted">位置をそのまま使いたい場合は <code>editor.graph.addNode(node)</code> を使います。</p>
 </section>
 
+<h2 id="m-childs">子ノード</h2>
+<section class="api" data-name="childs children addChild removeChild detachChild setParent childrenOf rootNodeOf parent nest childIndent childGap">
+<p>ノードに <code>childs</code> を持たせると、その中に子ノードが入ります。子ノードは親の項目の下に上から順に縦に積まれ、位置（<code>x</code> / <code>y</code>）と幅は親が自動計算します。入れ子は何段でも可能です。</p>
+<pre><code>editor.graph.addNode({
+  id: 'n0', title: '親ノード', x: 100, y: 50, input: true, output: true,
+  items: [{ id: 'p0', label: 'value', input: true, output: true }],
+  childs: [
+    {
+      id: 'n1', title: '子ノード', input: true, output: true,
+      items: [{ id: 'p1', label: 'value', input: true, output: true }],
+      childs: [{ id: 'n2', title: '孫ノード', input: true, output: true }],
+    },
+  ],
+});</code></pre>
+<table>
+  <tr><th>項目</th><th>ふるまい</th></tr>
+  <tr><td>配置</td><td>親の項目の下に縦に並ぶ。左右は <code>theme.node.childIndent</code>（既定 10px）だけ内側、間隔は <code>theme.node.childGap</code>（既定 6px）。子の <code>x</code> / <code>y</code> / <code>width</code> の指定は無視される</td></tr>
+  <tr><td>親の高さ</td><td><code>headerHeight + 項目 + 子ブロック</code>。孫まで含めて自動計算される</td></tr>
+  <tr><td>移動</td><td>子だけを動かすことはできない。子をドラッグすると一番外側の親ごと動く（<code>moveNodes</code> も同じ）</td></tr>
+  <tr><td>ポート・接続</td><td>子もヘッダポートと項目ポートを持ち、外のノードとも自由に接続できる。端子の丸は一番外側の親の左右の縁（<code>portEdgeX</code>）に並ぶ</td></tr>
+  <tr><td>選択・ヒットテスト</td><td>深い子ノードが優先して当たる。範囲選択（<code>selectInRect</code>）は親だけを選ぶ</td></tr>
+  <tr><td>削除・複製</td><td>親を削除すると子孫もまとめて消える。複製（<code>duplicateNodes</code>）は部分木ごとコピーされ、二重にはコピーされない</td></tr>
+  <tr><td>幅リサイズ</td><td>子ノードは親に追従するためリサイズできない（グリップも出ない）</td></tr>
+  <tr><td>JSON</td><td><a href="#t-json">childs として入れ子</a>で入出力される</td></tr>
+</table>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>addChild(parentId, child, index?) → Node | null</code></h3>
+<p>子ノードを追加します。<code>index</code> を渡すとその位置に挿入します（省略時は末尾）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>removeChild(id, { x?, y? }) → Node | null</code></h3>
+<p>子を親から外して独立したノードに戻します。<code>x</code> / <code>y</code> を渡すとその位置に置きます。子ノードでなければ <code>null</code>。Lit 版では DOM の予約名を避けて <code>detachChild(id, position?)</code> という名前です。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setParent(id, parentId | null, index?) → boolean</code></h3>
+<p>親を付け替えます。<code>parentId</code> に <code>null</code> を渡すと独立させます。自分の子孫を親にするような循環は <code>false</code> を返して拒否します。</p>
+<h3><span class="tag method">method</span><code>childrenOf(node) → Node[]</code> / <code>rootNodeOf(node) → Node | null</code></h3>
+<p>子ノードの配列（表示順）と、一番外側の親（自分が子でなければ自分自身）。引数はノードでも ID でも渡せます。さらに細かい問い合わせは <a href="#graph">Graph</a> 側の <code>isChild</code> / <code>parentOf</code> / <code>rootOf</code> / <code>depthOf</code> / <code>descendantIds</code> / <code>rootNodes</code> を使います。</p>
+</section>
+
 <h2 id="m-layout">自動整列</h2>
 <section class="api" data-name="autoLayout layeredLayout layout">
 <h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>autoLayout(options?) → string[]</code></h3>
@@ -607,7 +643,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 </section>
 
 <h2 id="t-node">Node / NodeItem</h2>
-<section class="api" data-name="Node NodeItem type title items style data showPorts width">
+<section class="api" data-name="Node NodeItem type title items childs parent style data showPorts width">
 <h3><span class="tag type">type</span><code>Node</code></h3>
 <table>
   <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
@@ -618,6 +654,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>width</code></td><td>number?</td><td>幅。省略時は <code>theme.node.width</code>（200）</td></tr>
   <tr><td><code>input</code> / <code>output</code></td><td><a href="#t-port">PortSpec</a></td><td>ヘッダ左／右のポート</td></tr>
   <tr><td><code>items</code></td><td>NodeItem[]</td><td>項目。高さは <code>headerHeight + items.length × itemHeight + padding</code></td></tr>
+  <tr><td><code>childs</code></td><td>Node[]?</td><td><a href="#m-childs">子ノード</a>。項目の下に縦に並ぶ。位置と幅は親が自動計算（子の <code>x</code> / <code>y</code> / <code>width</code> は無視される）。何段でも入れ子にできる</td></tr>
+  <tr><td><code>parent</code></td><td>string?</td><td>子ノードにだけ入る親の ID（読み取り専用。変更は <code>setParent()</code>）</td></tr>
   <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> で全ポートの丸を非表示</td></tr>
   <tr><td><code>style</code></td><td>object?</td><td><code>theme.node.*</code> の上書き</td></tr>
   <tr><td><code>data</code></td><td>any?</td><td>任意データ（そのまま JSON に保存）</td></tr>
@@ -673,24 +711,29 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <pre><code>{
   "format": "canvas-flow",
   "version": 1,
-  "nodes":  [ { "id": "a", "title": "A", "x": 0, "y": 0, "output": true, "items": [] } ],
+  "nodes":  [ { "id": "a", "title": "A", "x": 0, "y": 0, "output": true, "items": [],
+                "childs": [ { "id": "a1", "title": "子", "input": true, "items": [] } ] } ],
   "edges":  [ { "id": "e1", "source": "a", "sourcePort": "out", "target": "b", "targetPort": "in" } ],
   "viewport": { "tx": 0, "ty": 0, "zoom": 1 }
 }</code></pre>
 <p><code>format</code> / <code>version</code> / <code>viewport</code> は省略可能で、プレーンな <code>{ nodes, edges }</code> も読み込めます。未対応の <code>format</code> や <code>version &gt; 1</code> はエラーになります。</p>
+<p>子ノードは <code>nodes</code> の中に <code>childs</code> として入れ子で書き出されます（トップレベルの <code>nodes</code> に並ぶのは親を持たないノードだけ）。子ノードの座標と幅は親が決めるため出力されず、読み込み時に指定されていても無視されます。<code>edges</code> は入れ子にならず、子ノードの ID をそのまま参照します。</p>
 </section>
 
 <h2 id="graph">Graph（editor.graph）</h2>
-<section class="api" data-name="Graph addNode getNode updateNode updateItem addItem removeItem moveNodes removeNodes addEdge getEdge updateEdge removeEdges edgesOf connect canConnect connectError portCapacity portEdges portSpec portVisible nodeRect nodePorts portPosition itemRect edgeGeometry edgePoint nodesInRect edgesInRect nodesFullyInRect bounds duplicateNodes batch toJSON load clear">
+<section class="api" data-name="Graph childrenOf isChild parentOf rootOf depthOf descendantIds addChild removeChild setParent rootNodes relayoutChildren addNode getNode updateNode updateItem addItem removeItem moveNodes removeNodes addEdge getEdge updateEdge removeEdges edgesOf connect canConnect connectError portCapacity portEdges portSpec portVisible nodeRect nodePorts portPosition itemRect edgeGeometry edgePoint nodesInRect edgesInRect nodesFullyInRect bounds duplicateNodes batch toJSON load clear">
 <p>モデル操作の中心です。変更系はすべて <span class="tag undo">Undo 可</span>（<code>load</code> / <code>clear</code> を除く）。</p>
 <table>
   <tr><th>メソッド</th><th>説明</th></tr>
-  <tr><td><code>addNode(node) → Node</code></td><td>ノードを追加（ID 重複は例外）</td></tr>
+  <tr><td><code>addNode(node, { parent?, index? }) → Node</code></td><td>ノードを追加（ID 重複は例外）。<code>node.childs</code> があれば子ノードもまとめて追加</td></tr>
   <tr><td><code>getNode(id)</code> / <code>getEdge(id)</code></td><td>取得</td></tr>
   <tr><td><code>updateNode(id, patch)</code></td><td>プロパティを部分更新（<code>title</code>, <code>x</code>, <code>y</code>, <code>width</code>, <code>items</code>, <code>style</code>, <code>data</code>…）</td></tr>
   <tr><td><code>updateItem(nodeId, itemId, patch)</code> / <code>addItem(nodeId, item, index?)</code> / <code>removeItem(nodeId, itemId)</code></td><td>項目の更新・追加・削除（削除時はその項目のコネクタも削除）</td></tr>
-  <tr><td><code>moveNodes(ids, dx, dy)</code></td><td>複数ノードを相対移動</td></tr>
-  <tr><td><code>removeNode(id)</code> / <code>removeNodes(ids)</code></td><td>接続コネクタごと削除</td></tr>
+  <tr><td><code>moveNodes(ids, dx, dy)</code></td><td>複数ノードを相対移動（子ノードの ID を渡すと一番外側の親ごと動く）</td></tr>
+  <tr><td><code>removeNode(id)</code> / <code>removeNodes(ids)</code></td><td>接続コネクタと子孫ノードごと削除</td></tr>
+  <tr><td><code>childrenOf(node)</code> / <code>isChild(node)</code> / <code>parentOf(node)</code> / <code>rootOf(node)</code> / <code>depthOf(node)</code> / <code>descendantIds(node, { includeSelf? })</code> / <code>rootNodes()</code></td><td><a href="#m-childs">親子関係</a>の問い合わせ（引数はノードでも ID でも可）</td></tr>
+  <tr><td><code>addChild(parentId, child, index?)</code> / <code>removeChild(id, { x?, y? })</code> / <code>setParent(id, parentId | null, index?)</code></td><td>子ノードの追加・切り離し・付け替え（循環は <code>setParent</code> が <code>false</code> を返して拒否）</td></tr>
+  <tr><td><code>relayoutChildren(node, { reindex? })</code> / <code>nodeWidthOfChild(parent)</code> / <code>portEdgeX(node)</code></td><td>子ノードの再配置（通常は自動）・子の幅・ポートを描く左右の X</td></tr>
   <tr><td><code>addEdge(edge) → Edge | null</code></td><td>検証して追加（常に拒否モード）</td></tr>
   <tr><td><code>connect(source, sourcePort, target, targetPort, { replace? }) → Edge | null</code></td><td><code>rules.onFull</code> に従って接続（満杯なら付け替え）</td></tr>
   <tr><td><code>canConnect(...) → boolean</code> / <code>connectError(...) → string | null</code></td><td>接続可否。理由: <code>same-node</code> / <code>invalid-port</code> / <code>missing-port</code> / <code>duplicate</code> / <code>source-full</code> / <code>target-full</code></td></tr>
@@ -699,14 +742,14 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>connectedTo(startIds, { depth, direction, includeStart }) → { nodes: Set, edges: Set }</code></td><td>起点から辿れるノードとコネクタ（強調表示・まとめ選択用）。<code>direction</code> は <code>'lineage' | 'downstream' | 'upstream' | 'both'</code>（この API の既定は <code>'both'</code>）</td></tr>
   <tr><td><code>portSpec(nodeId, key)</code> / <code>portEdges(nodeId, key)</code> / <code>portCapacity(nodeId, key) → { count, max, full }</code></td><td>ポートの定義・接続・残量</td></tr>
   <tr><td><code>portVisible(nodeId, key)</code> / <code>setPortVisible(...)</code> / <code>setPortsVisible(...)</code></td><td>ポートの表示状態</td></tr>
-  <tr><td><code>nodeRect(node)</code> / <code>nodeWidth(node)</code> / <code>nodeHeight(node)</code></td><td>矩形・寸法</td></tr>
+  <tr><td><code>nodeRect(node)</code> / <code>nodeWidth(node)</code> / <code>nodeHeight(node)</code></td><td>矩形・寸法（高さはヘッダ＋項目＋子ノード）</td></tr>
   <tr><td><code>nodePorts(node, { visibleOnly? })</code> / <code>portPosition(nodeId, key)</code> / <code>itemRect(node, itemId)</code></td><td>ポート位置・項目矩形</td></tr>
   <tr><td><code>edgeGeometry(edge)</code> / <code>edgePoint(edge, t = 0.5)</code> / <code>edgeRect(edge)</code> / <code>edgeType(edge)</code></td><td>形状（<code>{ type, x1, y1, x2, y2, points, c1x… }</code>）・形状上の点（折れ線は道のり比）・外接矩形・描画方法</td></tr>
   <tr><td><code>nodesInRect(rect)</code> / <code>edgesInRect(rect)</code> / <code>nodesFullyInRect(rect)</code></td><td>空間インデックスによる範囲問い合わせ</td></tr>
   <tr><td><code>bounds() → rect | null</code></td><td>全ノードを囲む矩形</td></tr>
   <tr><td><code>duplicateNodes(ids, offset) → { nodes, edges, idMap }</code></td><td>複製</td></tr>
   <tr><td><code>batch(fn)</code></td><td>複数変更を 1 回の <code>change</code> と 1 つの Undo 項目にまとめる</td></tr>
-  <tr><td><code>toJSON()</code> / <code>load(data)</code> / <code>clear()</code></td><td>直列化・置き換え・全消去</td></tr>
+  <tr><td><code>toJSON()</code> / <code>load(data)</code> / <code>clear()</code></td><td>直列化（子は <code>childs</code> に入れ子）・置き換え・全消去</td></tr>
   <tr><td><code>rules</code>（プロパティ）</td><td><code>{ maxInputs, maxOutputs, onFull }</code></td></tr>
 </table>
 <p>Graph 自身も <code>on(type, handler)</code> を持ち、<code>change</code>, <code>node:add</code> などに加えて Undo 用の <code>op</code>、<code>load</code>, <code>clear</code> を発火します。</p>
@@ -720,6 +763,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   font: '13px system-ui, …', titleFont: 'bold 13px system-ui, …',
   node: { fill, stroke, strokeWidth: 1, radius: 8, headerFill, headerHeight: 30, titleColor, textColor,
           itemHeight: 26, itemSeparator, padding: 8, width: 200,
+          childIndent: 10,  // 子ノードの左右インデント
+          childGap: 6,      // 子ノードどうしの縦の間隔
           selectedStroke, selectedStrokeWidth: 2, hoverStroke, shadow },
   port: { radius: 5, fill, stroke, strokeWidth: 1.5, hoverFill, connectedFill, fullFill: '#f59e0b' },
   edge: { stroke, strokeWidth: 2, selectedStroke, selectedStrokeWidth: 3, hoverStroke, pendingStroke,
@@ -753,7 +798,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
   <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectConnected</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectConnected</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -780,7 +825,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.1.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.2.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

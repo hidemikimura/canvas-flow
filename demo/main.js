@@ -15,9 +15,11 @@ const nodeTypes = {
 function generate(n) {
   const cols = Math.ceil(Math.sqrt(n));
   const gapX = 280;
-  const gapY = 160;
+  const gapY = 260;
   const nodes = [];
   const edges = [];
+  // 8 個ずつのまとまり（連結成分）に分けておく。強調表示モードの効果が分かるように
+  const cluster0 = (k) => Math.floor(k / 8);
   for (let i = 0; i < n; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
@@ -34,6 +36,29 @@ function generate(n) {
         output: true,
       });
     }
+    // 9 個ごとに 1 つ、中に子ノードを持つノードを作る（childs）
+    const childs =
+      i % 9 === 4
+        ? [
+            {
+              id: `n${i}c0`,
+              type: 'input',
+              title: `child A of #${i}`,
+              input: true,
+              output: true,
+              items: [{ id: 'p0', label: 'value', value: 'a', input: { max: 1 }, output: true }],
+            },
+            {
+              id: `n${i}c1`,
+              type: 'output',
+              title: `child B of #${i}`,
+              input: true,
+              output: true,
+              // 子の中の子（入れ子は何段でも可）
+              childs: [{ id: `n${i}c2`, type: 'note', title: `grandchild of #${i}`, input: true, output: true }],
+            },
+          ]
+        : undefined;
     nodes.push({
       id: `n${i}`,
       type,
@@ -44,9 +69,13 @@ function generate(n) {
       // ヘッダの出力から開始できるコネクタは 3 本まで。note ノードは端子の丸を表示しない（接続は残る）
       output: type === 'note' ? { max: 3, visible: false } : { max: 3 },
       items,
+      ...(childs ? { childs } : null),
     });
-    // 8 個ずつのまとまり（連結成分）に分けておく。強調表示モードの効果が分かるように
-    const cluster = (k) => Math.floor(k / 8);
+    // 子ノードは外のノードとも自由に接続できる
+    if (childs && i > 0 && cluster0(i) === cluster0(i - 1)) {
+      edges.push({ id: `e${i}c`, source: `n${i}c0`, sourcePort: 'out', target: `n${i - 1}`, targetPort: 'in' });
+    }
+    const cluster = cluster0;
     // 左隣と接続（項目ポート同士）。まとまりを越えては繋がない
     if (col > 0 && cluster(i) === cluster(i - 1)) {
       edges.push({
@@ -123,6 +152,32 @@ document.getElementById('add').addEventListener('click', () => {
     { avoidOverlap: true },
   );
 });
+// 選択ノードの中に子ノードを追加
+document.getElementById('add-child').addEventListener('click', () => {
+  const id = el.editor?.selection.nodes.values().next().value;
+  if (!id) return void console.log('ノードを選択してください');
+  const parent = id;
+  const child = el.addChild(parent, {
+    type: 'process',
+    title: `子 ${el.childrenOf(parent).length + 1}`,
+    input: true,
+    output: true,
+    items: [{ label: 'value', value: '0', input: true, output: true }],
+  });
+  if (child) el.editor.select({ nodes: [child.id] });
+});
+
+// 選択した子ノードを親から出す（親のすぐ下に置く）
+document.getElementById('detach-child').addEventListener('click', () => {
+  const ed = el.editor;
+  const id = ed?.selection.nodes.values().next().value;
+  if (!id) return void console.log('ノードを選択してください');
+  const root = el.rootNodeOf(id);
+  if (!root || root.id === id) return void console.log('子ノードを選択してください');
+  const rect = ed.graph.nodeRect(root);
+  el.detachChild(id, { x: rect.x, y: rect.y + rect.h + 30 });
+});
+
 document.getElementById('onfull').addEventListener('change', (e) => {
   el.onFull = e.target.checked ? 'replace' : 'reject';
 });

@@ -79,7 +79,7 @@
       <a class="btn" href="https://github.com/hidemikimura/canvas-flow" target="_blank" rel="noopener">GitHub</a>
       <a class="btn" href="https://www.npmjs.com/package/@hidemikimura/canvas-flow" target="_blank" rel="noopener">npm</a>
     </div>
-    <p class="meta">v0.1.0 · MIT License · ES Modules · 依存は lit（Web Component 版のみ）</p>
+    <p class="meta">v0.2.0 · MIT License · ES Modules · 依存は lit（Web Component 版のみ）</p>
   </div>
 </header>
 
@@ -91,6 +91,7 @@
     <li><strong>10,000 ノードでも軽量</strong><span>空間インデックスで表示範囲だけを描画・ヒットテスト。縮小時は文字やポートを省いた簡易描画に切り替わります。</span></li>
     <li><strong>ノード内の項目とポート</strong><span>ノードに行（項目）を持たせ、項目ごとに入力／出力ポートを付けてコネクタで接続できます。接続数の上限も設定可。</span></li>
     <li><strong>コネクタの形を選べる</strong><span>曲線（ベジェ）／直線／直角の階段状から、全体の既定とコネクタ単位の両方で指定できます。</span></li>
+    <li><strong>ノードの中に子ノード</strong><span><code>childs</code> を持たせるとノードの中に子ノードが入り、位置と幅は親が自動計算。何段でも入れ子にでき、子も外のノードと自由に接続できます。</span></li>
     <li><strong>編集操作ひと通り</strong><span>選択・範囲選択・ドラッグ移動・複製・コピー＆ペースト・削除・インライン編集・リサイズ・Undo/Redo。</span></li>
     <li><strong>自動整列と検索</strong><span>階層レイアウトでコネクタが左から右に流れるよう並べ直し。ノード検索と該当ノードへのセンタリングも内蔵。</span></li>
     <li><strong>JSON で保存・読み込み</strong><span>グラフ全体の入出力に加えて、複数ノードの JSON を指定位置に相対座標で差し込めます。</span></li>

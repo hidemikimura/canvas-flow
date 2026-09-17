@@ -129,6 +129,8 @@ export class NodeEditor extends Emitter {
       itemHeight: this.theme.node.itemHeight,
       padding: this.theme.node.padding,
       defaultWidth: this.theme.node.width,
+      childIndent: this.theme.node.childIndent,
+      childGap: this.theme.node.childGap,
       curvature: this.theme.edge.curvature,
       edgeType: this.theme.edge.type,
       stepOffset: this.theme.edge.stepOffset,
@@ -230,6 +232,36 @@ export class NodeEditor extends Emitter {
   setSelectedEdgeType(type) {
     const ids = [...this.selection.edges];
     this.setEdgeType(type, ids.length ? ids : undefined);
+  }
+
+  /* ---------- 親子（子ノード） ---------- */
+
+  /** 子ノードを追加する（Undo 可）。`child` はノード定義か既存ノードの ID */
+  addChild(parentId, child, index) {
+    if (this.options.readOnly) return null;
+    return this.graph.addChild(parentId, child, index);
+  }
+
+  /** 子を親から外して独立させる（Undo 可）。x / y を渡すとその位置に置く */
+  removeChild(id, options) {
+    if (this.options.readOnly) return null;
+    return this.graph.removeChild(id, options);
+  }
+
+  /** 親子関係を付け替える（Undo 可）。`parentId` に null を渡すと独立させる */
+  setParent(id, parentId, index) {
+    if (this.options.readOnly) return false;
+    return this.graph.setParent(id, parentId, index);
+  }
+
+  /** 子ノードの配列（表示順） */
+  childrenOf(nodeOrId) {
+    return this.graph.childrenOf(nodeOrId);
+  }
+
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootNodeOf(nodeOrId) {
+    return this.graph.rootOf(nodeOrId);
   }
 
   /* ---------- 強調表示（つながりのハイライト） ---------- */
@@ -393,10 +425,16 @@ export class NodeEditor extends Emitter {
     const portR = (this.theme.port.radius + 4) / Math.min(1, viewport.zoom);
     // ポート判定はノード矩形の外側にもはみ出すので少し広く取る
     const candidates = graph.nodesInRect({ x: wx - portR, y: wy - portR, w: portR * 2, h: portR * 2 });
-    // リサイズグリップ（右下隅）はポートより優先
+    // 入れ子が浅い順に並べる（逆順に見るので、深い子ノードから判定される）
+    if (candidates.length > 1) {
+      const depth = new Map(candidates.map((n) => [n.id, graph.depthOf(n)]));
+      candidates.sort((a, b) => depth.get(a.id) - depth.get(b.id));
+    }
+    // リサイズグリップ（右下隅）はポートより優先。子ノードは親から幅をもらうので対象外
     const grip = this.resizeGripSize();
     for (let i = candidates.length - 1; i >= 0; i--) {
       const node = candidates[i];
+      if (graph.isChild(node)) continue;
       const r = graph.nodeRect(node);
       if (wx <= r.x + r.w && wx >= r.x + r.w - grip && wy <= r.y + r.h && wy >= r.y + r.h - grip) {
         return { type: 'resize', node };
@@ -419,7 +457,10 @@ export class NodeEditor extends Emitter {
       if (wy <= r.y + hh) return { type: 'node', node, header: true };
       const rel = wy - (r.y + hh + graph.layout.padding / 2);
       const idx = Math.floor(rel / graph.layout.itemHeight);
-      if (node.items && idx >= 0 && idx < node.items.length) return { type: 'item', node, item: node.items[idx] };
+      const itemsH = node.items ? node.items.length * graph.layout.itemHeight : 0;
+      if (node.items && idx >= 0 && idx < node.items.length && rel < itemsH) {
+        return { type: 'item', node, item: node.items[idx] };
+      }
       return { type: 'node', node, header: false };
     }
     const edge = this.edgeAt(wx, wy);
@@ -522,8 +563,12 @@ export class NodeEditor extends Emitter {
   }
 
   /** 矩形（ワールド）に完全に含まれるノードと、その間のエッジを選択 */
+  /** 範囲選択。子ノードは親と一緒に動くので、選ぶのは親を持たないノードだけ */
   selectInRect(rect, { additive = false } = {}) {
-    const nodes = this.graph.nodesFullyInRect(rect).map((n) => n.id);
+    const nodes = this.graph
+      .nodesFullyInRect(rect)
+      .filter((n) => !this.graph.isChild(n))
+      .map((n) => n.id);
     const set = new Set(nodes);
     const edges = [];
     for (const id of nodes) {
@@ -722,7 +767,8 @@ export class NodeEditor extends Emitter {
     if (this.options.readOnly) return null;
     const w = Math.max(this.options.minNodeWidth, Math.round(width));
     const node = this.graph.getNode(id);
-    if (!node || this.graph.nodeWidth(node) === w) return node;
+    if (!node || this.graph.isChild(node)) return node ?? null;
+    if (this.graph.nodeWidth(node) === w) return node;
     return this.graph.updateNode(id, { width: w });
   }
 

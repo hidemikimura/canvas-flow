@@ -9,6 +9,7 @@ import type {
   AutoLayoutOptions,
   CanvasFlowData,
   CanvasFlowInput,
+  ChildNodeInput,
   ConnectRules,
   Edge,
   EdgeDeleteScope,
@@ -125,6 +126,16 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAt(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtPointer(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtCenter(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
+  /** 子ノードを追加する */
+  addChild(parentId: string, child: ChildNodeInput, index?: number): Node | null;
+  /** 子を親から外して独立させる（`removeChild` は DOM の予約名のため別名）。x / y を渡すとその位置に置く */
+  detachChild(id: string, position?: Point): Node | null;
+  /** 親子関係を付け替える。parentId に null を渡すと独立させる */
+  setParent(id: string, parentId: string | null, index?: number): boolean;
+  /** 子ノードの配列（表示順） */
+  childrenOf(nodeOrId: Node | string): Node[];
+  /** 一番外側の親（自分が子でなければ自分自身） */
+  rootNodeOf(nodeOrId: Node | string): Node | null;
   getPointer(): { world: Point; screen: Point; inside: boolean } | null;
   setPortVisible(nodeId: string, portKey: PortKey, visible: boolean): boolean;
   setPortsVisible(nodeId: string, visible: boolean, itemId?: string): boolean;
