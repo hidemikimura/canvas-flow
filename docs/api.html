@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NodeEditor API 仕様書 — canvas-flow</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f7f9;
+    --fg: #1f2933;
+    --fg-muted: #5b6673;
+    --line: #e1e5ea;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --code-bg: #f1f3f6;
+    --code-fg: #1e293b;
+    --tag-method: #dbeafe; --tag-method-fg: #1d4ed8;
+    --tag-prop: #dcfce7;   --tag-prop-fg: #15803d;
+    --tag-event: #fef3c7;  --tag-event-fg: #b45309;
+    --tag-type: #ede9fe;   --tag-type-fg: #6d28d9;
+    --warn-bg: #fff7ed; --warn-line: #fdba74;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f141a; --bg-soft: #161c24; --fg: #e6ebf1; --fg-muted: #98a4b3; --line: #2a333f;
+      --accent: #60a5fa; --accent-soft: #1e3a5f; --code-bg: #1b222c; --code-fg: #e6ebf1;
+      --tag-method: #1e3a5f; --tag-method-fg: #93c5fd; --tag-prop: #14352a; --tag-prop-fg: #86efac;
+      --tag-event: #3b2a10; --tag-event-fg: #fcd34d; --tag-type: #2a1f4d; --tag-type-fg: #c4b5fd;
+      --warn-bg: #2a1d10; --warn-line: #9a5b1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.7 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); color: var(--code-fg); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 12px 14px; border-radius: 8px; overflow: auto; font-size: 12.5px; line-height: 1.6; margin: 10px 0 14px; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
+  nav.side {
+    position: sticky; top: 0; height: 100vh; overflow: auto; padding: 20px 16px 40px;
+    border-right: 1px solid var(--line); background: var(--bg-soft);
+  }
+  nav.side .brand { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  nav.side .version { color: var(--fg-muted); font-size: 12px; margin-bottom: 14px; }
+  nav.side input {
+    width: 100%; font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg); margin-bottom: 12px;
+  }
+  nav.side h4 { margin: 14px 0 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
+  nav.side ul { list-style: none; margin: 0; padding: 0; }
+  nav.side li a { display: block; padding: 3px 8px; border-radius: 5px; color: var(--fg); font-size: 13px; }
+  nav.side li a:hover { background: var(--accent-soft); text-decoration: none; }
+  nav.side li a code { background: none; padding: 0; color: inherit; }
+  nav.side li.hidden { display: none; }
+
+  main { padding: 28px 40px 80px; max-width: 980px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  .lead { color: var(--fg-muted); margin: 0 0 24px; }
+  h2 { font-size: 20px; margin: 44px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 15px; margin: 28px 0 6px; }
+  section.api { margin: 18px 0 26px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  section.api.hidden { display: none; }
+  section.api h3 { margin: 0 0 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  section.api h3 code { font-size: 14px; background: none; padding: 0; }
+  .tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600; letter-spacing: .02em; }
+  .tag.method { background: var(--tag-method); color: var(--tag-method-fg); }
+  .tag.prop { background: var(--tag-prop); color: var(--tag-prop-fg); }
+  .tag.event { background: var(--tag-event); color: var(--tag-event-fg); }
+  .tag.type { background: var(--tag-type); color: var(--tag-type-fg); }
+  .tag.undo { background: var(--accent-soft); color: var(--accent); }
+  .sig { margin: 4px 0 10px; }
+  .sig pre { margin: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 13px; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--fg-muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td:first-child { white-space: nowrap; }
+  .note { background: var(--bg-soft); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; }
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn-line); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; }
+  .muted { color: var(--fg-muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .toc-top { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .toc-top a { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { padding: 20px 16px 60px; }
+    .grid2 { grid-template-columns: 1fr; }
+  }
+  @media print { nav.side { display: none; } .layout { grid-template-columns: 1fr; } section.api { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side" id="nav">
+  <div class="brand">canvas-flow</div>
+  <div class="version">NodeEditor API 仕様書 · v0.1.0</div>
+  <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
+  <h4>はじめに</h4>
+  <ul>
+    <li><a href="#overview">概要</a></li>
+    <li><a href="#quickstart">導入</a></li>
+    <li><a href="#terms">用語と座標系</a></li>
+  </ul>
+  <h4>NodeEditor</h4>
+  <ul>
+    <li><a href="#constructor">コンストラクタ / オプション</a></li>
+    <li><a href="#properties">プロパティ</a></li>
+    <li><a href="#m-appearance">見た目</a></li>
+    <li><a href="#m-render">サイズ・描画</a></li>
+    <li><a href="#m-coords">座標・ヒットテスト</a></li>
+    <li><a href="#m-selection">選択</a></li>
+    <li><a href="#m-edit">編集コマンド</a></li>
+    <li><a href="#m-add">ノード追加</a></li>
+    <li><a href="#m-layout">自動整列</a></li>
+    <li><a href="#m-history">Undo / Redo</a></li>
+    <li><a href="#m-view">ビュー操作</a></li>
+    <li><a href="#m-search">検索</a></li>
+    <li><a href="#m-io">JSON 入出力</a></li>
+    <li><a href="#m-lifecycle">ライフサイクル</a></li>
+  </ul>
+  <h4>イベント</h4>
+  <ul><li><a href="#events">イベント一覧</a></li></ul>
+  <h4>データモデル</h4>
+  <ul>
+    <li><a href="#t-node">Node / NodeItem</a></li>
+    <li><a href="#t-port">PortSpec / ポートキー</a></li>
+    <li><a href="#t-edge">Edge</a></li>
+    <li><a href="#t-json">JSON フォーマット</a></li>
+  </ul>
+  <h4>関連クラス</h4>
+  <ul>
+    <li><a href="#graph">Graph</a></li>
+    <li><a href="#theme">テーマ</a></li>
+    <li><a href="#lit">&lt;canvas-flow-editor&gt;</a></li>
+    <li><a href="#keys">操作・ショートカット</a></li>
+  </ul>
+</nav>
+
+<main>
+<h1>NodeEditor API 仕様書</h1>
+<p class="lead">canvas-flow のコアクラス <code>NodeEditor</code>（フレームワーク非依存）のリファレンスです。Lit 版 <code>&lt;canvas-flow-editor&gt;</code> は <code>el.editor</code> でこのインスタンスを公開しており、主要メソッドを委譲しています。</p>
+
+<h2 id="overview">概要</h2>
+<p><code>NodeEditor</code> は <code>&lt;canvas&gt;</code> 要素を受け取り、Canvas 2D でノード・コネクタの描画と、ポインタ／ホイール／キーボード／タッチ操作、選択・編集コマンド、Undo/Redo、JSON 入出力を一括して引き受けます。データは内部の <a href="#graph"><code>Graph</code></a>（<code>editor.graph</code>）が保持し、描画・ヒットテストは空間インデックスにより表示範囲内の要素だけを処理するため、10,000 ノード規模でも軽量に動作します。</p>
+<div class="grid2">
+  <div class="note"><strong>編集系メソッドと Undo</strong><br />本書で <span class="tag undo">Undo 可</span> と付いた操作は 1 回の <code>undo()</code> で戻ります。複数の操作を 1 回にまとめたいときは <code>editor.graph.batch(() =&gt; { … })</code> で囲みます。</div>
+  <div class="note"><strong>readOnly</strong><br /><code>options.readOnly</code> が true のとき、編集系メソッドは何もせず <code>null</code> / <code>false</code> / 空配列を返します（クリックイベント等は発火します）。</div>
+</div>
+
+<h2 id="quickstart">導入</h2>
+<pre><code>import { NodeEditor } from 'canvas-flow/core';   // または 'canvas-flow'
+
+const canvas   = document.querySelector('canvas.main');
+const minimap  = document.querySelector('canvas.minimap');   // 省略可
+const editor   = new NodeEditor(canvas, { minimapCanvas: minimap, theme: { lodZoom: 0.3 } });
+
+editor.resize(800, 600);            // 表示サイズ（CSS px）。ResizeObserver 等で呼び直す
+editor.resizeMinimap(200, 140);
+
+editor.graph.addNode({ id: 'a', title: 'Source', x: 40,  y: 40,  output: true,
+                       items: [{ id: 'v', label: 'value', value: '10', output: true }] });
+editor.graph.addNode({ id: 'b', title: 'Sink',   x: 360, y: 120, input: true,
+                       items: [{ id: 'in', label: 'in', input: true }] });
+editor.graph.addEdge({ source: 'a', sourcePort: 'item:v:out', target: 'b', targetPort: 'item:in:in' });
+
+editor.on('selection:change', ({ nodes, edges }) =&gt; console.log(nodes, edges));
+editor.on('item:edit', ({ node, item, screenRect }) =&gt; { /* 入力欄を screenRect に重ねる */ });</code></pre>
+<p class="muted">インライン編集（ダブルクリック）はコアではイベント発火のみです。Lit 版は内蔵の入力欄を表示します。</p>
+
+<h2 id="terms">用語と座標系</h2>
+<table>
+  <tr><th>用語</th><th>意味</th></tr>
+  <tr><td>ノード (Node)</td><td>タイトル付きの矩形。項目（NodeItem）を縦に並べる。高さは項目数から自動計算される</td></tr>
+  <tr><td>項目 (NodeItem)</td><td>ノード内の 1 行。ラベルと値を持ち、左右に入力／出力ポートを持てる</td></tr>
+  <tr><td>ポート (Port)</td><td>接続の端子。ノードのヘッダ左右と各項目の左右にある。<a href="#t-port">ポートキー</a>で識別</td></tr>
+  <tr><td>コネクタ / エッジ (Edge)</td><td>出力ポートから入力ポートへの接続線。常に「出力 → 入力」の向き</td></tr>
+  <tr><td>ワールド座標</td><td>ノードの <code>x</code>, <code>y</code> が置かれている座標系。ズーム・パンの影響を受けない</td></tr>
+  <tr><td>スクリーン座標</td><td>canvas 左上を原点とする CSS ピクセル。<code>screen = world × zoom + (tx, ty)</code></td></tr>
+  <tr><td>クライアント座標</td><td>マウスイベントの <code>clientX</code> / <code>clientY</code>。<code>clientToWorld()</code> で変換</td></tr>
+</table>
+
+<h2 id="constructor">コンストラクタ / オプション</h2>
+<section class="api" data-name="constructor NodeEditor options">
+<h3><span class="tag method">constructor</span><code>new NodeEditor(canvas, options?)</code></h3>
+<table>
+  <tr><th>オプション</th><th>型</th><th>既定</th><th>説明</th></tr>
+  <tr><td><code>theme</code></td><td>object</td><td>–</td><td><a href="#theme">テーマ</a>の部分上書き（深いマージ）</td></tr>
+  <tr><td><code>graph</code></td><td><code>Graph</code></td><td>新規作成</td><td>既存の Graph を使う</td></tr>
+  <tr><td><code>nodeTypes</code></td><td><code>{ [type]: { style } }</code></td><td><code>{}</code></td><td>ノード種別ごとの既定スタイル（<code>node.type</code> で参照）</td></tr>
+  <tr><td><code>minimapCanvas</code></td><td>HTMLCanvasElement</td><td>–</td><td>指定するとミニマップを描画・操作する</td></tr>
+  <tr><td><code>wheelMode</code></td><td><code>'zoom' | 'pan'</code></td><td><code>'zoom'</code></td><td>ホイールの既定動作。zoom: 通常ズーム / Shift でパン。pan: 通常パン / Ctrl・Cmd でズーム</td></tr>
+  <tr><td><code>dragMode</code></td><td><code>'pan' | 'select'</code></td><td><code>'pan'</code></td><td>空白を左ドラッグしたときの動作（Shift で反転）</td></tr>
+  <tr><td><code>readOnly</code></td><td>boolean</td><td>false</td><td>編集操作を無効化</td></tr>
+  <tr><td><code>historyLimit</code></td><td>number</td><td>200</td><td>Undo 履歴の上限</td></tr>
+  <tr><td><code>minNodeWidth</code></td><td>number</td><td>100</td><td>リサイズ時の最小幅</td></tr>
+  <tr><td><code>rules</code></td><td><code>{ maxInputs?, maxOutputs?, onFull? }</code></td><td>無制限 / <code>'reject'</code></td><td>接続ルール。ポート側で上限を指定しないときの既定上限と、満杯ポートへ接続したときの挙動（<code>'reject'</code> 拒否 / <code>'replace'</code> 最古のコネクタを外して付け替え）</td></tr>
+  <tr><td><code>edgeDeleteIcon</code></td><td>boolean</td><td>true</td><td>ホバー／選択中のコネクタ中央に削除アイコンを表示</td></tr>
+  <tr><td><code>keyboardScope</code></td><td>Element</td><td>canvas</td><td>この要素内を最後にポインタ操作していればキーボードショートカットを受け付ける（Lit 版はホスト要素）</td></tr>
+  <tr><td><code>wheelGestureGap</code></td><td>number (ms)</td><td>250</td><td>この間隔以内のホイールイベントは同じスクロール操作とみなし、ズーム／パンの判定を維持する（慣性スクロール対策）</td></tr>
+  <tr><td><code>moveSnap</code></td><td>number (px)</td><td>0（無効）</td><td>ノードの移動単位。ドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う</td></tr>
+  <tr><td><code>theme.edge.type</code></td><td><code>'bezier' | 'straight' | 'step'</code></td><td><code>'bezier'</code></td><td>コネクタの描画方法の既定（<code>theme</code> オプション経由。後から <code>setEdgeType()</code> で変更可）</td></tr>
+</table>
+<p class="muted">オプションは <code>editor.options</code> に保持され、<code>wheelMode</code> / <code>dragMode</code> / <code>readOnly</code> / <code>edgeDeleteIcon</code> は実行中に書き換えても次の操作から反映されます。</p>
+</section>
+
+<h2 id="properties">プロパティ</h2>
+<section class="api" data-name="graph viewport renderer history minimap interaction selection hover options theme nodeTypes canvas">
+<table>
+  <tr><th>プロパティ</th><th>型</th><th>説明</th></tr>
+  <tr><td><code>graph</code></td><td><a href="#graph">Graph</a></td><td>ノード・コネクタのモデル。低レベルな操作はここから行う</td></tr>
+  <tr><td><code>viewport</code></td><td>Viewport</td><td><code>tx</code>, <code>ty</code>, <code>zoom</code>, <code>width</code>, <code>height</code>、<code>toWorld()</code> / <code>toScreen()</code> / <code>visibleRect()</code> / <code>snapshot()</code> / <code>restore()</code></td></tr>
+  <tr><td><code>renderer</code></td><td>Renderer</td><td>描画器。<code>renderer.stats</code> に直近フレームの <code>{ nodes, edges, ms }</code></td></tr>
+  <tr><td><code>history</code></td><td>History</td><td>Undo 履歴。<code>begin(label)</code> / <code>end()</code> でトランザクションを明示できる</td></tr>
+  <tr><td><code>minimap</code></td><td>Minimap | null</td><td><code>minimapCanvas</code> を渡したときのみ</td></tr>
+  <tr><td><code>interaction</code></td><td>Interaction</td><td>入力処理。<code>dragThreshold</code>（既定 3px）、<code>pointerInside</code></td></tr>
+  <tr><td><code>selection</code></td><td><code>{ nodes: Set&lt;string&gt;, edges: Set&lt;string&gt; }</code></td><td>選択中の ID。直接変更せず <a href="#m-selection">選択メソッド</a>を使う</td></tr>
+  <tr><td><code>selectedNodes</code></td><td>Node[]（getter）</td><td>選択中ノードの配列</td></tr>
+  <tr><td><code>hover</code></td><td><code>{ node, edge, port, edgeDelete }</code></td><td>ホバー中の要素 ID（読み取り用）</td></tr>
+  <tr><td><code>theme</code></td><td>object</td><td>現在の<a href="#theme">テーマ</a>（マージ済み）。変更は <code>setTheme()</code> で</td></tr>
+  <tr><td><code>nodeTypes</code></td><td>object</td><td>ノード種別の定義</td></tr>
+  <tr><td><code>options</code></td><td>object</td><td>コンストラクタのオプション（既定値でマージ済み）</td></tr>
+  <tr><td><code>canvas</code></td><td>HTMLCanvasElement</td><td>描画先</td></tr>
+  <tr><td><code>canUndo</code> / <code>canRedo</code></td><td>boolean（getter）</td><td>履歴の有無</td></tr>
+  <tr><td><code>nodeRenderer</code> / <code>edgeRenderer</code></td><td>function（setter）</td><td>独自描画関数。<a href="#m-appearance">見た目</a>を参照</td></tr>
+</table>
+</section>
+
+<h2 id="m-appearance">見た目</h2>
+<section class="api" data-name="setTheme theme">
+<h3><span class="tag method">method</span><code>setTheme(patch)</code></h3>
+<p>テーマを部分的に上書きします。<code>node.headerHeight</code> / <code>itemHeight</code> / <code>padding</code> / <code>width</code> / <code>edge.curvature</code> / <code>edge.type</code> / <code>edge.stepOffset</code> はレイアウトにも反映され、空間インデックスが再構築されます。</p>
+<pre><code>editor.setTheme({ background: '#0f172a', node: { fill: '#1e293b', titleColor: '#f1f5f9' }, lodZoom: 0.25 });</code></pre>
+</section>
+<section class="api" data-name="setRules rules maxInputs maxOutputs onFull">
+<h3><span class="tag method">method</span><code>setRules(rules)</code></h3>
+<p>接続ルール <code>{ maxInputs, maxOutputs, onFull }</code> を変更します（<code>editor.graph.rules</code> に反映）。</p>
+</section>
+<section class="api" data-name="setEdgeType edgeType setSelectedEdgeType bezier straight step 曲線 直線 直角 階段 コネクタ 描画方法 normalizeEdgeType">
+<h3><span class="tag method">method</span><code>setEdgeType(type, edgeIds?)</code> / <span class="tag prop">getter/setter</span><code>edgeType</code> / <span class="tag method">method</span><code>setSelectedEdgeType(type)</code></h3>
+<p>コネクタの描画方法を変えます。<code>type</code> は <code>'bezier'</code>（三次ベジェ曲線・既定）、<code>'straight'</code>（直線）、<code>'step'</code>（90 度にだけ曲がる階段状の折れ線）。<code>edgeIds</code> を省略すると全体の既定（<code>theme.edge.type</code> / <code>graph.layout.edgeType</code>）を変え、<code>edge.type</code> を持たないすべてのコネクタが切り替わります。<code>edgeIds</code> を渡すとそのコネクタの <code>edge.type</code> を更新します（<span class="tag undo">Undo 可</span>、JSON にも保存）。<code>setSelectedEdgeType</code> は選択中のコネクタだけ（選択が無ければ全体の既定）。いずれも <code>'edge-type:change'</code> を発火します。</p>
+<table>
+  <tr><th>type</th><th>形</th></tr>
+  <tr><td><code>'bezier'</code></td><td>制御点を横に <code>max(40, |dx| × theme.edge.curvature)</code> 出した三次ベジェ曲線</td></tr>
+  <tr><td><code>'straight'</code></td><td>2 点を結ぶ直線</td></tr>
+  <tr><td><code>'step'</code></td><td>前方（右側）の相手へは横中央で 1 回だけ縦に折れる。後方の相手へは <code>theme.edge.stepOffset</code>（既定 24px）だけ右へ突き出し → 上下の中間の高さで左へ戻り → 相手の左から入る</td></tr>
+</table>
+<pre><code>editor.setEdgeType('step');                 // 全体
+editor.setEdgeType('straight', ['e1']);     // e1 だけ
+editor.graph.addEdge({ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in', type: 'step' });</code></pre>
+<p>ドラッグ中の仮コネクタ・ヒットテスト・削除アイコンの位置（形状の中点）・簡易表示（LOD）も同じ形に従います。<code>'line'</code> → <code>'straight'</code>、<code>'orthogonal'</code> / <code>'smoothstep'</code> → <code>'step'</code> の別名は <code>normalizeEdgeType()</code> が丸めます。</p>
+</section>
+<section class="api" data-name="registerNodeType nodeTypes">
+<h3><span class="tag method">method</span><code>registerNodeType(type, { style })</code></h3>
+<p>ノード種別を登録します。スタイルの優先順位は <code>node.style</code> &gt; <code>nodeTypes[node.type].style</code> &gt; <code>theme.node</code> です。</p>
+</section>
+<section class="api" data-name="nodeRenderer edgeRenderer custom render">
+<h3><span class="tag prop">setter</span><code>nodeRenderer = (ctx, node, rect, api) =&gt; boolean | void</code><br /><span class="tag prop">setter</span><code>edgeRenderer = (ctx, edge, geometry, api) =&gt; boolean | void</code></h3>
+<p>独自の描画関数を設定します（<code>null</code> で既定に戻す）。<code>true</code> を返すと既定描画を省略、それ以外は既定描画にフォールバックします。<code>api</code> には <code>selected</code>, <code>hover</code>, <code>style</code>, <code>lod</code>, <code>zoom</code>, <code>theme</code>, <code>graph</code>, <code>roundRect()</code>, <code>fitText()</code> が入ります。<code>geometry</code> は <code>{ type, x1, y1, x2, y2, points }</code>（<code>points</code> は折れ線の頂点列。<code>type === 'bezier'</code> のときは制御点 <code>c1x, c1y, c2x, c2y</code> も入る）です。</p>
+<div class="warn">独自描画関数が設定されている間は、縮小時の一括簡易描画（LOD）は使われず、各要素に対して関数が呼ばれます（<code>api.lod</code> で判断できます）。</div>
+</section>
+
+<h2 id="m-render">サイズ・描画</h2>
+<section class="api" data-name="resize resizeMinimap">
+<h3><span class="tag method">method</span><code>resize(width, height, dpr?)</code> / <code>resizeMinimap(width, height, dpr?)</code></h3>
+<p>表示サイズ（CSS px）を設定します。<code>dpr</code> 省略時は <code>devicePixelRatio</code>。コンテナのサイズが変わるたびに呼んでください。</p>
+</section>
+<section class="api" data-name="requestRender render">
+<h3><span class="tag method">method</span><code>requestRender()</code> / <code>render()</code></h3>
+<p><code>requestRender()</code> は次の <code>requestAnimationFrame</code> で 1 回だけ描画を予約します（複数回呼んでも 1 フレームにまとまる）。<code>render()</code> は即時描画し、<code>'render'</code> イベントで統計を通知します。モデルやビューの変更は内部で自動的に <code>requestRender()</code> されるため、通常は呼ぶ必要はありません。</p>
+</section>
+
+<h2 id="m-coords">座標・ヒットテスト</h2>
+<section class="api" data-name="clientToWorld worldRectToScreen viewCenter getPointer coordinates">
+<h3><span class="tag method">method</span><code>clientToWorld(clientX, clientY) → {x, y}</code></h3>
+<p>マウスイベントのクライアント座標をワールド座標に変換します。</p>
+<h3><span class="tag method">method</span><code>worldRectToScreen(rect) → {x, y, w, h}</code></h3>
+<p>ワールド矩形を canvas 基準のスクリーン矩形に変換します（インライン編集 UI の配置などに）。</p>
+<h3><span class="tag method">method</span><code>viewCenter() → {x, y}</code></h3>
+<p>表示中の画面中央のワールド座標。</p>
+<h3><span class="tag method">method</span><code>getPointer() → { world, screen, inside } | null</code></h3>
+<p>最後に観測したポインタ位置。<code>inside</code> はポインタが canvas 上にあるか。一度も観測していなければ <code>null</code>。</p>
+</section>
+<section class="api" data-name="hitTest edgeAt edgeDeleteIconAt">
+<h3><span class="tag method">method</span><code>hitTest(wx, wy) → Hit</code></h3>
+<p>ワールド座標にある要素を返します。判定の優先順位は 削除アイコン &gt; リサイズグリップ &gt; ポート &gt; ノード（ヘッダ／項目／本体）&gt; コネクタ です。</p>
+<table>
+  <tr><th><code>type</code></th><th>追加フィールド</th><th>意味</th></tr>
+  <tr><td><code>'edge-delete'</code></td><td><code>edge</code></td><td>表示中のコネクタ削除アイコン</td></tr>
+  <tr><td><code>'resize'</code></td><td><code>node</code></td><td>ノード右下のリサイズグリップ</td></tr>
+  <tr><td><code>'port'</code></td><td><code>node</code>, <code>port: { key, dir, itemId, x, y, visible }</code></td><td>表示中のポート</td></tr>
+  <tr><td><code>'item'</code></td><td><code>node</code>, <code>item</code></td><td>ノード内の項目行</td></tr>
+  <tr><td><code>'node'</code></td><td><code>node</code>, <code>header: boolean</code></td><td>ノードのヘッダまたは本体</td></tr>
+  <tr><td><code>'edge'</code></td><td><code>edge</code></td><td>コネクタ（線から約 6px 以内）</td></tr>
+  <tr><td><code>'none'</code></td><td>–</td><td>空白</td></tr>
+</table>
+<h3><span class="tag method">method</span><code>edgeAt(wx, wy) → Edge | null</code></h3>
+<p>点に最も近いコネクタ（しきい値内）。</p>
+<h3><span class="tag method">method</span><code>edgeDeleteIconAt(wx, wy) → Edge | null</code> / <code>deleteIconEdges() → Edge[]</code></h3>
+<p>削除アイコンの当たり判定と、現在アイコンを表示しているコネクタ一覧（ホバー中 + 選択中。readOnly / LOD 時は空）。</p>
+</section>
+
+<h2 id="m-selection">選択</h2>
+<section class="api" data-name="select toggleSelect clearSelection selectAll selectInRect selection">
+<h3><span class="tag method">method</span><code>select({ nodes?, edges? }, { additive? })</code></h3>
+<p>ID 配列を選択します。<code>additive: true</code> で既存の選択に追加。<code>'selection:change'</code> を発火します。</p>
+<h3><span class="tag method">method</span><code>toggleSelect({ nodes?, edges? })</code></h3>
+<p>指定 ID の選択状態を反転します。</p>
+<h3><span class="tag method">method</span><code>clearSelection()</code> / <code>selectAll()</code></h3>
+<h3><span class="tag method">method</span><code>selectInRect(rect, { additive? })</code></h3>
+<p>ワールド矩形に<em>完全に</em>含まれるノードと、その間のコネクタを選択します（範囲選択と同じ挙動）。</p>
+<pre><code>editor.select({ nodes: ['a', 'b'] });
+editor.select({ edges: ['e1'] }, { additive: true });
+console.log(editor.selectedNodes.map(n =&gt; n.title));</code></pre>
+</section>
+
+<h2 id="m-edit">編集コマンド</h2>
+<section class="api" data-name="deleteSelection deleteSelectedEdges selectedEdgeIds removeNode removeEdge delete">
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>deleteSelection()</code></h3>
+<p>選択中のノードとコネクタを削除します。ノードに繋がるコネクタも一緒に削除され、1 回の Undo で戻ります。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>deleteSelectedEdges({ scope = 'between' }) → string[]</code></h3>
+<p>選択範囲内のコネクタだけを削除し、ノードは残します。戻り値は削除したコネクタ ID。<code>'edges:delete'</code> を発火します。Shift + Delete、Lit 版ツールバーの「コネクタ削除」に対応。</p>
+<table>
+  <tr><th><code>scope</code></th><th>対象</th></tr>
+  <tr><td><code>'between'</code>（既定）</td><td>選択中のコネクタ + 両端とも選択中ノードに繋がるコネクタ（範囲選択の内側）</td></tr>
+  <tr><td><code>'attached'</code></td><td>選択中のコネクタ + 選択中ノードに繋がるすべてのコネクタ（範囲外へ出るものも含む）</td></tr>
+  <tr><td><code>'selected'</code></td><td>選択中のコネクタのみ</td></tr>
+</table>
+<h3><span class="tag method">method</span><code>selectedEdgeIds({ scope = 'between' }) → string[]</code></h3>
+<p><code>deleteSelectedEdges</code> と同じ規則で対象になるコネクタ ID を返します（削除はしない）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>removeNode(id)</code> / <code>removeEdge(id)</code></h3>
+</section>
+<section class="api" data-name="duplicateSelection duplicateNode copySelection paste clipboard">
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>duplicateSelection(offset = {x: 40, y: 40}) → { nodes, edges, idMap } | null</code></h3>
+<p>選択中のノードと、その内部で閉じているコネクタを複製し、複製側を選択状態にします。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>duplicateNode(id, offset?) → Node | null</code></h3>
+<h3><span class="tag method">method</span><code>copySelection() → boolean</code></h3>
+<p>選択内容を内部クリップボードに保存します。キーボードの Ctrl/Cmd+C はこれに加えてシステムのクリップボードへ JSON を書き込みます。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>paste(at?) → { nodes, edges } | null</code></h3>
+<p>内部クリップボードの内容を貼り付けます。<code>at</code>（ワールド座標）を渡すと貼り付け内容の左上をそこに置き、省略時は元の位置から 40px ずらします。</p>
+</section>
+<section class="api" data-name="moveSelection nudgeSelection resizeNode setPortVisible setPortsVisible">
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>moveSelection(dx, dy)</code></h3>
+<p>選択中ノードをワールド座標で相対移動します（移動単位は適用しない）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>nudgeSelection(stepsX, stepsY, { pixels = 1 })</code></h3>
+<p>選択中ノードを移動単位で動かします（矢印キーの実装）。<code>moveSnap</code> 未設定なら <code>pixels</code> × steps。設定時は先頭の選択ノードが目盛りに乗っていなければ進む方向の次の目盛りが 1 歩目になり、動かす軸だけ揃えます。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>resizeNode(id, width) → Node | null</code></h3>
+<p>ノードの幅を変更します（<code>minNodeWidth</code> 未満は切り上げ）。高さは項目数で決まるため変更できません。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setPortVisible(nodeId, portKey, visible) → boolean</code></h3>
+<p>1 つのポートの表示／非表示。ポートが存在しなければ <code>false</code>。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setPortsVisible(nodeId, visible, itemId?) → boolean</code></h3>
+<p>ノード（<code>itemId</code> 指定時はその項目）の全ポートの表示／非表示（<code>showPorts</code> を設定）。</p>
+<div class="note">非表示のポートは描画されずマウス操作の対象にもなりませんが、存在はしているため既存のコネクタは保たれ、<code>addEdge()</code> / <code>connect()</code> / JSON 読み込みからの接続は有効です。</div>
+</section>
+
+<section class="api" data-name="moveSnap setMoveSnap snapValue snapPoint snapNodes grid snap">
+<h3><span class="tag method">method</span><code>setMoveSnap(step)</code> / <span class="tag prop">getter</span><code>moveSnap</code></h3>
+<p>ノードの移動単位（ワールド px）を設定・取得します。0 で無効。設定するとドラッグ中はクリックしたノードの左上が単位に揃い、他の選択ノードは相対位置を保って追従します。<code>addNodeAt</code> / <code>insertJSON</code> の <code>snap</code> 既定値も true になります。</p>
+<h3><span class="tag method">method</span><code>snapValue(v) → number</code> / <code>snapPoint({x, y}) → {x, y}</code></h3>
+<p>値・座標を移動単位に丸めます（無効時はそのまま）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>snapNodes(ids?) → string[]</code></h3>
+<p>ノードの左上を移動単位に揃えます。<code>ids</code> 省略時は選択中ノード、選択が無ければ全ノード。戻り値は動かしたノード ID。</p>
+</section>
+
+<h2 id="m-add">ノード追加</h2>
+<section class="api" data-name="addNodeAt addNodeAtPointer addNodeAtCenter addNode">
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>addNodeAt(spec, options?) → Node | null</code></h3>
+<p>位置を指定してノードを追加し、選択状態にします。<code>spec</code> は <a href="#t-node">Node</a> 定義（<code>x</code>, <code>y</code> は計算で上書き）。</p>
+<table>
+  <tr><th>オプション</th><th>既定</th><th>説明</th></tr>
+  <tr><td><code>at: {x, y}</code></td><td>–</td><td>ワールド座標</td></tr>
+  <tr><td><code>client: {clientX, clientY}</code></td><td>–</td><td>クライアント座標（マウスイベントをそのまま渡せる）</td></tr>
+  <tr><td colspan="3" class="muted">どちらも省略時はポインタ位置。ポインタが canvas 外か未観測なら画面中央</td></tr>
+  <tr><td><code>anchor</code></td><td><code>'center'</code></td><td>位置に合わせる基準点。<code>'center'</code> / <code>'top-left'</code> / <code>'header'</code>（ヘッダ中央）</td></tr>
+  <tr><td><code>select</code></td><td>true</td><td>追加後に選択する</td></tr>
+  <tr><td><code>snap</code></td><td><code>moveSnap &gt; 0</code></td><td>追加位置を <code>moveSnap</code>（未設定なら <code>theme.grid.size</code>）に吸着</td></tr>
+  <tr><td><code>avoidOverlap</code></td><td>false</td><td>既存ノードと重なる場合は右下へ <code>moveSnap</code>（未設定なら 24px）ずつずらす（最大 50 回）</td></tr>
+</table>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>addNodeAtPointer(spec, options?)</code> / <code>addNodeAtCenter(spec, options?)</code></h3>
+<p>それぞれ「ポインタ位置（canvas 外なら画面中央）」「画面中央」に追加する省略形です。</p>
+<pre><code>document.addEventListener('keydown', (e) =&gt; {
+  if (e.key === 'n') editor.addNodeAtPointer({ title: '新規', input: true, output: true, items: [] }, { avoidOverlap: true });
+});
+editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規' }, { at: { x, y }, anchor: 'header' }));</code></pre>
+<p class="muted">位置をそのまま使いたい場合は <code>editor.graph.addNode(node)</code> を使います。</p>
+</section>
+
+<h2 id="m-layout">自動整列</h2>
+<section class="api" data-name="autoLayout layeredLayout layout">
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>autoLayout(options?) → string[]</code></h3>
+<p>階層レイアウト（Sugiyama 方式の簡略版）で並べ直します。コネクタは左から右へ流れ、層をまたぐコネクタは途中の層で場所を確保するため他のノードの上を横切りません。2 つ以上のノードを選択していればその範囲だけ、なければ全ノードが対象です。戻り値は移動対象になったノード ID。</p>
+<table>
+  <tr><th>オプション</th><th>既定</th><th>説明</th></tr>
+  <tr><td><code>nodeIds</code></td><td>選択 or 全体</td><td>対象を明示</td></tr>
+  <tr><td><code>fit</code> / <code>animate</code></td><td>true / true</td><td>整列後に表示を合わせる（全体なら全体表示、範囲なら中央へ）</td></tr>
+  <tr><td><code>layerGap</code></td><td>120</td><td>層と層の横の間隔</td></tr>
+  <tr><td><code>nodeGap</code></td><td>40</td><td>同じ層のノード間の縦の間隔</td></tr>
+  <tr><td><code>componentGap</code></td><td>80</td><td>連結成分の間隔</td></tr>
+  <tr><td><code>dummyHeight</code></td><td>24</td><td>通過するコネクタ 1 本が確保する高さ</td></tr>
+  <tr><td><code>iterations</code></td><td>8</td><td>順序付け・座標調整の反復回数</td></tr>
+  <tr><td><code>origin: {x, y}</code></td><td>対象の元の左上</td><td>整列後の左上位置</td></tr>
+</table>
+<p>位置だけを計算したい場合は <code>import { layeredLayout } from 'canvas-flow'</code> の <code>layeredLayout(graph, nodeIds, options) → Map&lt;id, {x, y}&gt;</code> を使います。</p>
+</section>
+
+<h2 id="m-history">Undo / Redo</h2>
+<section class="api" data-name="undo redo canUndo canRedo history batch">
+<h3><span class="tag method">method</span><code>undo() → boolean</code> / <code>redo() → boolean</code></h3>
+<p>履歴を 1 段戻す／進めます。存在しなくなった要素は選択から外れます。<code>canUndo</code> / <code>canRedo</code> で可否を確認できます。</p>
+<div class="note">
+<strong>履歴の単位</strong>: <code>graph.batch(fn)</code> の中、または <code>history.begin()</code> 〜 <code>history.end()</code> の間の操作は 1 項目になります。同じノード群の連続移動、同じノードの連続更新は併合されます。<code>load()</code> / <code>importData({ mode: 'replace' })</code> で履歴は破棄されます。
+</div>
+<pre><code>editor.graph.batch(() =&gt; {
+  editor.graph.addNode({ id: 'x', title: 'X' });
+  editor.graph.addNode({ id: 'y', title: 'Y', x: 300 });
+  editor.graph.addEdge({ source: 'x', sourcePort: 'out', target: 'y', targetPort: 'in' });
+});
+editor.undo();   // 3 つまとめて消える</code></pre>
+</section>
+
+<h2 id="m-view">ビュー操作</h2>
+<section class="api" data-name="zoomIn zoomOut setZoom resetZoom resetView fitView centerOnNode centerOn viewport">
+<h3><span class="tag method">method</span><code>zoomIn(factor = 1.2)</code> / <code>zoomOut(factor = 1.2)</code> / <code>setZoom(zoom)</code></h3>
+<p>画面中央を基準にズームします。範囲は <code>viewport.minZoom</code>（0.05）〜 <code>maxZoom</code>（4）。</p>
+<h3><span class="tag method">method</span><code>resetZoom()</code> / <code>resetView()</code></h3>
+<p><code>resetZoom()</code> は縮尺を 1 に戻し（中心は維持）、<code>resetView()</code> は縮尺 1 で原点を左上に戻します。</p>
+<h3><span class="tag method">method</span><code>fitView(padding = 40, { animate = false })</code></h3>
+<p>全ノードが収まるようにズーム・位置を合わせます。</p>
+<h3><span class="tag method">method</span><code>centerOnNode(id, { zoom?, animate = true, duration = 300 }) → boolean</code></h3>
+<p>ノードが画面中央に来るようにスクロールします（既定でアニメーション）。</p>
+<h3><span class="tag method">method</span><code>centerOn(wx, wy, { zoom?, animate = false, duration = 300 })</code></h3>
+<p>ビューの変更後は <code>'viewport:change'</code> が発火します。直接 <code>editor.viewport</code> を操作した場合は <code>requestRender()</code> を呼んでください。</p>
+</section>
+
+<h2 id="m-search">検索</h2>
+<section class="api" data-name="search searchAndFocus">
+<h3><span class="tag method">method</span><code>search(query) → Node[]</code></h3>
+<p>タイトル・ID・項目ラベル・項目値を部分一致（大文字小文字無視）で検索します。<code>query</code> は文字列、<code>RegExp</code>、または <code>(node) =&gt; boolean</code>。</p>
+<h3><span class="tag method">method</span><code>searchAndFocus(query, index = 0) → Node[]</code></h3>
+<p>検索して <code>index</code> 番目の一致（循環）を選択し、中央へアニメーションで移動します。</p>
+</section>
+
+<h2 id="m-io">JSON 入出力</h2>
+<section class="api" data-name="exportData exportJSON downloadJSON toJSON export">
+<h3><span class="tag method">method</span><code>exportData({ selectionOnly = false, includeViewport = true }) → object</code></h3>
+<p><a href="#t-json">JSON フォーマット</a>のオブジェクトを返します。<code>selectionOnly</code> で選択中のノードとその間のコネクタだけを出力（このとき viewport は含まれない）。<code>'export'</code> イベントを発火します。</p>
+<h3><span class="tag method">method</span><code>exportJSON({ pretty = true, ...exportDataOptions }) → string</code></h3>
+<h3><span class="tag method">method</span><code>downloadJSON(filename = 'canvas-flow.json', options?)</code></h3>
+<p>ブラウザでファイルとしてダウンロードさせます。</p>
+<h3><span class="tag method">method</span><code>toJSON() → object</code></h3>
+<p><code>JSON.stringify(editor)</code> で使われます。<code>exportData()</code> と同じ形式（イベントは発火しない）。</p>
+</section>
+<section class="api" data-name="importData importJSON insertJSON insertJSONAtPointer template importFromFile openImportDialog load import">
+<h3><span class="tag method">method</span><code>importData(input, options?) → { ok: true, mode, nodes, edges, warnings } | { ok: false, errors }</code></h3>
+<p>JSON 文字列またはオブジェクトを検証して読み込みます。<code>importJSON()</code> は別名です。</p>
+<table>
+  <tr><th>オプション</th><th>既定</th><th>説明</th></tr>
+  <tr><td><code>mode</code></td><td><code>'replace'</code></td><td><code>'replace'</code>: 内容を置き換え（履歴は破棄） / <code>'merge'</code>: 既存に追加。衝突する ID は付け替え、<span class="tag undo">Undo 可</span></td></tr>
+  <tr><td><code>at: {x, y}</code></td><td>–</td><td>merge 時の配置位置。基準は <code>anchor</code> で選ぶ</td></tr>
+  <tr><td><code>anchor</code></td><td><code>'top-left'</code></td><td><code>'origin'</code>: JSON の座標を at からの相対位置として扱う / <code>'top-left'</code>: ノード群の左上を at に / <code>'center'</code>: 中心を at に</td></tr>
+  <tr><td><code>offset: {x, y}</code></td><td>–</td><td>merge 時に加える位置オフセット</td></tr>
+  <tr><td><code>select</code></td><td>true</td><td>merge 後に読み込んだ要素を選択</td></tr>
+  <tr><td><code>restoreViewport</code></td><td>true</td><td>replace 時に viewport を復元</td></tr>
+  <tr><td><code>fitView</code></td><td>false</td><td>読み込み後に全体表示</td></tr>
+</table>
+<p>検証で構文エラー・構造エラー・未対応 format/version は <code>errors</code>、存在しないノード／ポートを指すコネクタは除外して <code>warnings</code> に記録します。成功時は <code>'import'</code> イベントを発火します。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>insertJSON(input, options?) → result</code></h3>
+<p>複数のノード・コネクタを含む JSON を指定位置に追加します（既存の内容は残す）。JSON 内のノード座標は<strong>追加位置からの相対位置</strong>として扱われ（既定 <code>anchor: 'origin'</code>）、(0, 0) のノードが追加位置にそのまま置かれます。衝突する ID は付け替え、コネクタの参照も追従します。戻り値は <code>importData</code> と同じで、成功時に <code>'insert'</code> イベントを発火します。</p>
+<table>
+  <tr><th>オプション</th><th>既定</th><th>説明</th></tr>
+  <tr><td><code>at: {x, y}</code> / <code>client: {clientX, clientY}</code></td><td>ポインタ位置</td><td>追加位置。省略時はポインタ位置（canvas 外・未観測なら画面中央）</td></tr>
+  <tr><td><code>anchor</code></td><td><code>'origin'</code></td><td><code>'origin'</code> / <code>'top-left'</code> / <code>'center'</code></td></tr>
+  <tr><td><code>select</code></td><td>true</td><td>追加した要素を選択</td></tr>
+  <tr><td><code>snap</code></td><td><code>moveSnap &gt; 0</code></td><td>追加位置を <code>moveSnap</code>（未設定なら <code>theme.grid.size</code>）に吸着</td></tr>
+</table>
+<pre><code>const template = { nodes: [{ id: 'a', title: 'A', x: 0, y: 0, output: true }, { id: 'b', title: 'B', x: 300, y: 80, input: true }],
+                   edges: [{ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in' }] };
+editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B → (800,280)</code></pre>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>insertJSONAtPointer(input, options?)</code></h3>
+<p><code>insertJSON</code> をポインタ位置で実行します（canvas 外なら画面中央）。</p>
+<h3><span class="tag method">method</span><code>importFromFile(file | string, options?) → Promise</code></h3>
+<h3><span class="tag method">method</span><code>openImportDialog(options?) → Promise&lt;result | null&gt;</code></h3>
+<p>ファイル選択ダイアログを開いて読み込みます。キャンセル時は <code>null</code>。</p>
+<h3><span class="tag method">method</span><code>load(data)</code></h3>
+<p>検証なしで内容を置き換えます（<code>{ nodes, edges, viewport? }</code>）。信頼できるデータ向け。</p>
+</section>
+
+<h2 id="m-lifecycle">ライフサイクル</h2>
+<section class="api" data-name="destroy on off emit">
+<h3><span class="tag method">method</span><code>on(type, handler) → unsubscribe</code> / <code>off(type, handler)</code></h3>
+<p>イベント購読。戻り値の関数で解除できます。</p>
+<h3><span class="tag method">method</span><code>destroy()</code></h3>
+<p>イベントリスナ（canvas / document）とアニメーションを解除します。canvas を DOM から外す前に呼んでください。</p>
+</section>
+
+<h2 id="events">イベント一覧</h2>
+<p>コアは <code>editor.on(type, handler)</code>、Lit 版は <code>CustomEvent</code>（名前は kebab-case、内容は <code>event.detail</code>）です。</p>
+<section class="api" data-name="events selection:change viewport:change graph:change node:add node:remove node:change nodes:move edge:add edge:remove history:change render">
+<h3><span class="tag event">event</span>状態・モデルの変化</h3>
+<table>
+  <tr><th>コア</th><th>Lit</th><th>payload</th><th>タイミング</th></tr>
+  <tr><td><code>selection:change</code></td><td><code>selection-change</code></td><td><code>{ nodes: string[], edges: string[] }</code></td><td>選択が変わった</td></tr>
+  <tr><td><code>viewport:change</code></td><td><code>viewport-change</code></td><td><code>{ tx, ty, zoom }</code></td><td>パン／ズームの操作が終わった（ホイールは 120ms 間引き）</td></tr>
+  <tr><td><code>graph:change</code></td><td><code>graph-change</code></td><td>–</td><td>モデルが変わった（batch 内はまとめて 1 回）</td></tr>
+  <tr><td><code>node:add</code> / <code>node:remove</code> / <code>node:change</code></td><td><code>node-add</code> / <code>node-remove</code> / <code>node-change</code></td><td><code>Node</code></td><td>ノードの追加／削除／プロパティ変更</td></tr>
+  <tr><td><code>nodes:move</code></td><td><code>nodes-move</code></td><td><code>{ ids, dx, dy }</code></td><td>移動のたび（ドラッグ中も）</td></tr>
+  <tr><td><code>nodes:move:end</code></td><td><code>nodes-move-end</code></td><td><code>{ ids, dx, dy, start }</code></td><td>ドラッグ移動の終了</td></tr>
+  <tr><td><code>node:resize:end</code></td><td><code>node-resize-end</code></td><td><code>{ id, from, to }</code></td><td>リサイズの終了</td></tr>
+  <tr><td><code>edge:add</code> / <code>edge:remove</code> / <code>edge:change</code></td><td><code>edge-add</code> / …</td><td><code>Edge</code></td><td>コネクタの追加／削除／変更</td></tr>
+  <tr><td><code>history:change</code></td><td><code>history-change</code></td><td><code>{ canUndo, canRedo }</code></td><td>履歴の状態が変わった</td></tr>
+  <tr><td><code>import</code> / <code>export</code></td><td><code>import</code> / <code>export</code></td><td><code>{ mode, nodes, edges, warnings }</code> / <code>{ data, selectionOnly }</code></td><td>JSON 入出力</td></tr>
+  <tr><td><code>layout</code></td><td><code>layout</code></td><td><code>{ nodes: string[] }</code></td><td>自動整列を適用した</td></tr>
+  <tr><td><code>edge-type:change</code></td><td><code>edge-type-change</code></td><td><code>{ type, edges: string[] | null }</code></td><td>コネクタの描画方法を変えた（<code>edges</code> が null なら全体の既定）</td></tr>
+  <tr><td><code>edges:delete</code></td><td><code>edges-delete</code></td><td><code>{ ids: string[], scope }</code></td><td>選択範囲内のコネクタだけを削除した</td></tr>
+  <tr><td><code>insert</code></td><td><code>insert</code></td><td><code>{ at, anchor, nodes, edges }</code></td><td><code>insertJSON</code> で JSON を指定位置に追加した</td></tr>
+  <tr><td><code>render</code></td><td><code>render</code></td><td><code>{ nodes, edges, ms }</code></td><td>描画後の統計</td></tr>
+</table>
+</section>
+<section class="api" data-name="events click node:click item:click edge:click canvas:click dblclick node:edit item:edit connect:rejected connect:cancel edge:delete-icon">
+<h3><span class="tag event">event</span>ユーザー操作</h3>
+<table>
+  <tr><th>コア</th><th>Lit</th><th>payload</th><th>タイミング</th></tr>
+  <tr><td><code>node:click</code></td><td><code>node-click</code></td><td><code>{ node, item, header, port, …共通 }</code></td><td>ノードのどこかをクリック（ドラッグせずに離した）</td></tr>
+  <tr><td><code>item:click</code></td><td><code>item-click</code></td><td><code>{ node, item, …共通 }</code></td><td>項目をクリック（続けて node:click も発火）</td></tr>
+  <tr><td><code>edge:click</code></td><td><code>edge-click</code></td><td><code>{ edge, …共通 }</code></td><td>コネクタをクリック</td></tr>
+  <tr><td><code>canvas:click</code></td><td><code>canvas-click</code></td><td><code>{ …共通 }</code></td><td>空白をクリック</td></tr>
+  <tr><td><code>node:edit</code></td><td><code>node-edit</code></td><td><code>{ node, rect, screenRect }</code></td><td>ヘッダをダブルクリック（Lit 版は <code>preventDefault()</code> で内蔵編集を抑止）</td></tr>
+  <tr><td><code>item:edit</code></td><td><code>item-edit</code></td><td><code>{ node, item, rect, screenRect }</code></td><td>項目をダブルクリック</td></tr>
+  <tr><td><code>canvas:dblclick</code></td><td><code>canvas-dblclick</code></td><td><code>{ x, y }</code></td><td>空白をダブルクリック</td></tr>
+  <tr><td><code>edge:dblclick</code></td><td><code>edge-dblclick</code></td><td><code>{ edge, at }</code></td><td>コネクタをダブルクリック</td></tr>
+  <tr><td><code>connect:cancel</code></td><td><code>connect-cancel</code></td><td><code>{ from: { node, port }, at }</code></td><td>コネクタのドラッグを空白で離した</td></tr>
+  <tr><td><code>connect:rejected</code></td><td><code>connect-rejected</code></td><td><code>{ node, port, reason }</code></td><td>満杯のポートからコネクタを引こうとした</td></tr>
+  <tr><td><code>edge:delete-icon</code></td><td><code>edge-delete-icon</code></td><td><code>{ edge }</code></td><td>削除アイコンのクリックでコネクタを削除した</td></tr>
+</table>
+<p>クリック系の共通 payload: <code>x</code>, <code>y</code>（ワールド）, <code>screen: {x, y}</code>, <code>button</code>, <code>shiftKey</code>, <code>ctrlKey</code>, <code>metaKey</code>, <code>altKey</code>, <code>pointerType</code>, <code>originalEvent</code>。選択の更新はクリックイベントより前に行われ、readOnly でも発火します。</p>
+</section>
+
+<h2 id="t-node">Node / NodeItem</h2>
+<section class="api" data-name="Node NodeItem type title items style data showPorts width">
+<h3><span class="tag type">type</span><code>Node</code></h3>
+<table>
+  <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+  <tr><td><code>id</code></td><td>string</td><td>一意な ID（省略時は自動生成）</td></tr>
+  <tr><td><code>type</code></td><td>string?</td><td>ノード種別。<code>nodeTypes</code> のスタイルを適用</td></tr>
+  <tr><td><code>title</code></td><td>string</td><td>ヘッダに表示（既定 <code>'Node'</code>）</td></tr>
+  <tr><td><code>x</code>, <code>y</code></td><td>number</td><td>左上のワールド座標</td></tr>
+  <tr><td><code>width</code></td><td>number?</td><td>幅。省略時は <code>theme.node.width</code>（200）</td></tr>
+  <tr><td><code>input</code> / <code>output</code></td><td><a href="#t-port">PortSpec</a></td><td>ヘッダ左／右のポート</td></tr>
+  <tr><td><code>items</code></td><td>NodeItem[]</td><td>項目。高さは <code>headerHeight + items.length × itemHeight + padding</code></td></tr>
+  <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> で全ポートの丸を非表示</td></tr>
+  <tr><td><code>style</code></td><td>object?</td><td><code>theme.node.*</code> の上書き</td></tr>
+  <tr><td><code>data</code></td><td>any?</td><td>任意データ（そのまま JSON に保存）</td></tr>
+</table>
+<h3><span class="tag type">type</span><code>NodeItem</code></h3>
+<table>
+  <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+  <tr><td><code>id</code></td><td>string</td><td>ノード内で一意（省略時は自動生成）</td></tr>
+  <tr><td><code>label</code></td><td>string</td><td>左側に表示</td></tr>
+  <tr><td><code>value</code></td><td>string?</td><td>右側に表示。あればダブルクリックで値を、無ければラベルを編集</td></tr>
+  <tr><td><code>input</code> / <code>output</code></td><td>PortSpec</td><td>行の左／右のポート</td></tr>
+  <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> でこの項目のポートを非表示</td></tr>
+</table>
+</section>
+
+<h2 id="t-port">PortSpec / ポートキー</h2>
+<section class="api" data-name="PortSpec portKey visible max in out item">
+<h3><span class="tag type">type</span><code>PortSpec = false | true | number | { max?: number, visible?: boolean }</code></h3>
+<table>
+  <tr><th>値</th><th>意味</th></tr>
+  <tr><td><code>false</code> / 省略</td><td>ポート無し（接続もできない）</td></tr>
+  <tr><td><code>true</code></td><td>ポート有り。上限は <code>rules.maxInputs</code> / <code>maxOutputs</code>（既定 無制限）</td></tr>
+  <tr><td>数値 <code>n</code></td><td>最大 <code>n</code> 本</td></tr>
+  <tr><td><code>{ max, visible }</code></td><td><code>max</code> 省略で既定上限。<code>visible: false</code> で丸を描かない（接続は有効）</td></tr>
+</table>
+<p><code>output</code> の上限は「そのポートから開始できるコネクタ数」、<code>input</code> は「そのポートに終了できるコネクタ数」です。上限に達したポートは <code>theme.port.fullFill</code>（橙）で描かれます。</p>
+<h3><span class="tag type">type</span>ポートキー</h3>
+<table>
+  <tr><th>キー</th><th>場所</th></tr>
+  <tr><td><code>'in'</code> / <code>'out'</code></td><td>ノードヘッダの左／右</td></tr>
+  <tr><td><code>'item:&lt;itemId&gt;:in'</code> / <code>'item:&lt;itemId&gt;:out'</code></td><td>項目の左／右</td></tr>
+</table>
+<p><code>portKey(itemId, dir)</code> / <code>parsePortKey(key)</code>（<code>canvas-flow</code> から export）で生成・分解できます。</p>
+</section>
+
+<h2 id="t-edge">Edge</h2>
+<section class="api" data-name="Edge source sourcePort target targetPort">
+<h3><span class="tag type">type</span><code>Edge</code></h3>
+<table>
+  <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+  <tr><td><code>id</code></td><td>string</td><td>一意な ID（省略時は自動生成）</td></tr>
+  <tr><td><code>source</code> / <code>sourcePort</code></td><td>string</td><td>出力側のノード ID とポートキー（<code>out</code> 系）</td></tr>
+  <tr><td><code>target</code> / <code>targetPort</code></td><td>string</td><td>入力側のノード ID とポートキー（<code>in</code> 系）</td></tr>
+  <tr><td><code>style</code></td><td>object?</td><td><code>theme.edge.*</code> の上書き</td></tr>
+  <tr><td><code>type</code></td><td><code>'bezier' | 'straight' | 'step'</code>?</td><td>描画方法。省略時は全体の既定（<code>theme.edge.type</code>）</td></tr>
+  <tr><td><code>data</code></td><td>any?</td><td>任意データ</td></tr>
+</table>
+<p>向きが逆（in → out）で渡された場合、<code>addEdge()</code> が正規化します。同一ノード間・同じポート組の重複・存在しないポート・上限超過は追加されず <code>null</code> を返します。</p>
+</section>
+
+<h2 id="t-json">JSON フォーマット</h2>
+<section class="api" data-name="JSON format version viewport">
+<pre><code>{
+  "format": "canvas-flow",
+  "version": 1,
+  "nodes":  [ { "id": "a", "title": "A", "x": 0, "y": 0, "output": true, "items": [] } ],
+  "edges":  [ { "id": "e1", "source": "a", "sourcePort": "out", "target": "b", "targetPort": "in" } ],
+  "viewport": { "tx": 0, "ty": 0, "zoom": 1 }
+}</code></pre>
+<p><code>format</code> / <code>version</code> / <code>viewport</code> は省略可能で、プレーンな <code>{ nodes, edges }</code> も読み込めます。未対応の <code>format</code> や <code>version &gt; 1</code> はエラーになります。</p>
+</section>
+
+<h2 id="graph">Graph（editor.graph）</h2>
+<section class="api" data-name="Graph addNode getNode updateNode updateItem addItem removeItem moveNodes removeNodes addEdge getEdge updateEdge removeEdges edgesOf connect canConnect connectError portCapacity portEdges portSpec portVisible nodeRect nodePorts portPosition itemRect edgeGeometry edgePoint nodesInRect edgesInRect nodesFullyInRect bounds duplicateNodes batch toJSON load clear">
+<p>モデル操作の中心です。変更系はすべて <span class="tag undo">Undo 可</span>（<code>load</code> / <code>clear</code> を除く）。</p>
+<table>
+  <tr><th>メソッド</th><th>説明</th></tr>
+  <tr><td><code>addNode(node) → Node</code></td><td>ノードを追加（ID 重複は例外）</td></tr>
+  <tr><td><code>getNode(id)</code> / <code>getEdge(id)</code></td><td>取得</td></tr>
+  <tr><td><code>updateNode(id, patch)</code></td><td>プロパティを部分更新（<code>title</code>, <code>x</code>, <code>y</code>, <code>width</code>, <code>items</code>, <code>style</code>, <code>data</code>…）</td></tr>
+  <tr><td><code>updateItem(nodeId, itemId, patch)</code> / <code>addItem(nodeId, item, index?)</code> / <code>removeItem(nodeId, itemId)</code></td><td>項目の更新・追加・削除（削除時はその項目のコネクタも削除）</td></tr>
+  <tr><td><code>moveNodes(ids, dx, dy)</code></td><td>複数ノードを相対移動</td></tr>
+  <tr><td><code>removeNode(id)</code> / <code>removeNodes(ids)</code></td><td>接続コネクタごと削除</td></tr>
+  <tr><td><code>addEdge(edge) → Edge | null</code></td><td>検証して追加（常に拒否モード）</td></tr>
+  <tr><td><code>connect(source, sourcePort, target, targetPort, { replace? }) → Edge | null</code></td><td><code>rules.onFull</code> に従って接続（満杯なら付け替え）</td></tr>
+  <tr><td><code>canConnect(...) → boolean</code> / <code>connectError(...) → string | null</code></td><td>接続可否。理由: <code>same-node</code> / <code>invalid-port</code> / <code>missing-port</code> / <code>duplicate</code> / <code>source-full</code> / <code>target-full</code></td></tr>
+  <tr><td><code>updateEdge(id, patch)</code> / <code>removeEdge(id)</code> / <code>removeEdges(ids)</code></td><td>コネクタの更新・削除</td></tr>
+  <tr><td><code>edgesOf(nodeId) → Edge[]</code></td><td>ノードに接続しているコネクタ</td></tr>
+  <tr><td><code>portSpec(nodeId, key)</code> / <code>portEdges(nodeId, key)</code> / <code>portCapacity(nodeId, key) → { count, max, full }</code></td><td>ポートの定義・接続・残量</td></tr>
+  <tr><td><code>portVisible(nodeId, key)</code> / <code>setPortVisible(...)</code> / <code>setPortsVisible(...)</code></td><td>ポートの表示状態</td></tr>
+  <tr><td><code>nodeRect(node)</code> / <code>nodeWidth(node)</code> / <code>nodeHeight(node)</code></td><td>矩形・寸法</td></tr>
+  <tr><td><code>nodePorts(node, { visibleOnly? })</code> / <code>portPosition(nodeId, key)</code> / <code>itemRect(node, itemId)</code></td><td>ポート位置・項目矩形</td></tr>
+  <tr><td><code>edgeGeometry(edge)</code> / <code>edgePoint(edge, t = 0.5)</code> / <code>edgeRect(edge)</code> / <code>edgeType(edge)</code></td><td>形状（<code>{ type, x1, y1, x2, y2, points, c1x… }</code>）・形状上の点（折れ線は道のり比）・外接矩形・描画方法</td></tr>
+  <tr><td><code>nodesInRect(rect)</code> / <code>edgesInRect(rect)</code> / <code>nodesFullyInRect(rect)</code></td><td>空間インデックスによる範囲問い合わせ</td></tr>
+  <tr><td><code>bounds() → rect | null</code></td><td>全ノードを囲む矩形</td></tr>
+  <tr><td><code>duplicateNodes(ids, offset) → { nodes, edges, idMap }</code></td><td>複製</td></tr>
+  <tr><td><code>batch(fn)</code></td><td>複数変更を 1 回の <code>change</code> と 1 つの Undo 項目にまとめる</td></tr>
+  <tr><td><code>toJSON()</code> / <code>load(data)</code> / <code>clear()</code></td><td>直列化・置き換え・全消去</td></tr>
+  <tr><td><code>rules</code>（プロパティ）</td><td><code>{ maxInputs, maxOutputs, onFull }</code></td></tr>
+</table>
+<p>Graph 自身も <code>on(type, handler)</code> を持ち、<code>change</code>, <code>node:add</code> などに加えて Undo 用の <code>op</code>、<code>load</code>, <code>clear</code> を発火します。</p>
+</section>
+
+<h2 id="theme">テーマ（defaultTheme）</h2>
+<section class="api" data-name="theme defaultTheme background grid font node port edge deleteIcon selectionBox minimap lodZoom">
+<pre><code>{
+  background: '#f6f7f9',
+  grid: { color: '#e0e3e8', size: 32, majorEvery: 4, majorColor: '#cfd4db' },
+  font: '13px system-ui, …', titleFont: 'bold 13px system-ui, …',
+  node: { fill, stroke, strokeWidth: 1, radius: 8, headerFill, headerHeight: 30, titleColor, textColor,
+          itemHeight: 26, itemSeparator, padding: 8, width: 200,
+          selectedStroke, selectedStrokeWidth: 2, hoverStroke, shadow },
+  port: { radius: 5, fill, stroke, strokeWidth: 1.5, hoverFill, connectedFill, fullFill: '#f59e0b' },
+  edge: { stroke, strokeWidth: 2, selectedStroke, selectedStrokeWidth: 3, hoverStroke, pendingStroke,
+          type: 'bezier',   // 'bezier' | 'straight' | 'step'
+          curvature: 0.5,   // bezier の曲がり具合
+          stepOffset: 24,   // step の水平突き出し量
+          deleteIcon: { radius: 9, fill, stroke, color, hoverFill, hoverColor } },
+  selectionBox: { fill, stroke },
+  minimap: { background, border, node, selectedNode, viewportFill, viewportStroke },
+  lodZoom: 0.3      // この拡大率以下で文字・ポート・影を省いた簡易描画
+}</code></pre>
+<p><code>setTheme(patch)</code> で部分上書きします。<code>deleteIcon.radius</code> は画面ピクセル単位（ズームに影響されない）。<code>node.shadow</code> は拡大率 50% 未満では省略されます。</p>
+</section>
+
+<h2 id="lit">&lt;canvas-flow-editor&gt;（Lit 版）</h2>
+<section class="api" data-name="canvas-flow-editor lit attributes data theme node-types minimap toolbar wheel-mode drag-mode read-only import-mode export-filename max-inputs max-outputs on-full edge-delete-icon move-snap edge-type">
+<p>コアを包む Web Component。<code>el.editor</code> で <code>NodeEditor</code> に触れます。ツールバー（検索・ズーム・Undo/Redo・複製・削除・コネクタ削除・整列・読み込み・書き出し）、インライン編集、ミニマップ、.json ドロップ、ResizeObserver による自動リサイズを内蔵します。</p>
+<table>
+  <tr><th>属性</th><th>型 / 既定</th><th>説明</th></tr>
+  <tr><td><code>data</code>（プロパティ）</td><td>object</td><td>設定すると <code>load()</code></td></tr>
+  <tr><td><code>theme</code>（プロパティ）</td><td>object</td><td>テーマの部分上書き</td></tr>
+  <tr><td><code>node-types</code></td><td>object / <code>{}</code></td><td>ノード種別</td></tr>
+  <tr><td><code>minimap</code> / <code>minimap-width</code> / <code>minimap-height</code></td><td>true / 200 / 140</td><td>ミニマップ</td></tr>
+  <tr><td><code>toolbar</code></td><td>true</td><td>ツールバー表示</td></tr>
+  <tr><td><code>wheel-mode</code> / <code>drag-mode</code> / <code>read-only</code></td><td>zoom / pan / false</td><td>コアのオプションに対応</td></tr>
+  <tr><td><code>import-mode</code> / <code>export-filename</code></td><td>replace / canvas-flow.json</td><td>ツールバー・ドロップでの読み込み方法、書き出しファイル名</td></tr>
+  <tr><td><code>max-inputs</code> / <code>max-outputs</code> / <code>on-full</code></td><td>無制限 / reject</td><td>接続ルール</td></tr>
+  <tr><td><code>edge-delete-icon</code></td><td><code>"false"</code> で無効</td><td>削除アイコン</td></tr>
+  <tr><td><code>move-snap</code></td><td>0</td><td>ノードの移動単位（px）</td></tr>
+  <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
+</table>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+</section>
+
+<h2 id="keys">操作・ショートカット</h2>
+<section class="api" data-name="shortcuts keyboard mouse touch wheel">
+<table>
+  <tr><th>操作</th><th>動作</th></tr>
+  <tr><td>ノードをクリック / ドラッグ</td><td>選択（Shift・Ctrl・Cmd で追加・トグル）/ 選択中ノードをまとめて移動</td></tr>
+  <tr><td>ポートをドラッグ</td><td>コネクタ作成（出力 → 入力。上限超過先には繋げない）</td></tr>
+  <tr><td>右下グリップをドラッグ</td><td>幅のリサイズ</td></tr>
+  <tr><td>コネクタをクリック / 中央の × をクリック</td><td>選択 / 削除</td></tr>
+  <tr><td>空白を左ドラッグ</td><td>パン（<code>dragMode='select'</code> なら範囲選択。Shift で反転）</td></tr>
+  <tr><td>中ボタン / Space + ドラッグ</td><td>パン</td></tr>
+  <tr><td>ホイール</td><td>ズーム。Shift + ホイールでパン（<code>wheelMode='pan'</code> なら逆）。慣性スクロール中は最初の動作を維持</td></tr>
+  <tr><td>2 本指（タッチ）</td><td>ピンチでズーム、同時にパン</td></tr>
+  <tr><td>ダブルクリック</td><td>ヘッダ / 項目: 編集イベント。空白: <code>canvas:dblclick</code></td></tr>
+  <tr><td>Delete / Backspace</td><td>選択を削除</td></tr>
+  <tr><td>Shift + Delete / Backspace</td><td>選択範囲内のコネクタだけを削除（ノードは残す）</td></tr>
+  <tr><td>Ctrl/Cmd + A / C / V / D</td><td>全選択 / コピー / 貼り付け（カーソル位置）/ 複製</td></tr>
+  <tr><td>Ctrl/Cmd + Z / Shift+Z / Y</td><td>Undo / Redo</td></tr>
+  <tr><td>Ctrl/Cmd + 0 / + / −</td><td>縮尺リセット / 拡大 / 縮小</td></tr>
+  <tr><td>矢印キー（Shift で 10 倍）</td><td>選択ノードを微移動（1px。<code>moveSnap</code> 設定時はその単位）</td></tr>
+  <tr><td>Escape</td><td>操作キャンセル / 選択解除</td></tr>
+</table>
+<p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
+</section>
+
+<p class="muted" style="margin-top:48px">canvas-flow v0.1.0 · この仕様書は <code>docs/api.html</code> として同梱されています。</p>
+</main>
+</div>
+<script>
+  // サイドバーの絞り込み: セクションの data-name と本文、ナビ項目のテキストに対して部分一致
+  const filter = document.getElementById('filter');
+  const sections = [...document.querySelectorAll('section.api')];
+  const navItems = [...document.querySelectorAll('#nav li')];
+  const headings = [...document.querySelectorAll('main h2')];
+  filter.addEventListener('input', () => {
+    const q = filter.value.trim().toLowerCase();
+    for (const s of sections) {
+      const hay = (s.dataset.name + ' ' + s.textContent).toLowerCase();
+      s.classList.toggle('hidden', !!q && !hay.includes(q));
+    }
+    for (const li of navItems) li.classList.toggle('hidden', !!q && !li.textContent.toLowerCase().includes(q));
+    // 絞り込み中は、表示中のセクションを持つ見出しだけ残し、説明文などは隠す
+    for (const h2 of headings) {
+      let el = h2.nextElementSibling;
+      let any = false;
+      while (el && el.tagName !== 'H2') {
+        const isSection = el.matches('section.api');
+        if (isSection && !el.classList.contains('hidden')) any = true;
+        if (!isSection) el.style.display = q ? 'none' : '';
+        el = el.nextElementSibling;
+      }
+      h2.style.display = q && !any ? 'none' : '';
+    }
+  });
+</script>
+</body>
+</html>

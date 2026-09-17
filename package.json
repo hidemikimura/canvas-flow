@@ -1,0 +1,81 @@
+{
+  "name": "canvas-flow",
+  "version": "0.1.0",
+  "description": "Fast Canvas 2D node editor library with a framework-agnostic core and a Lit Web Component / Canvas 2D ベースの高速ノードエディタライブラリ",
+  "type": "module",
+  "license": "MIT",
+  "author": "Hidemi Kimura (https://github.com/hidemikimura)",
+  "homepage": "https://github.com/hidemikimura/canvas-flow#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hidemikimura/canvas-flow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hidemikimura/canvas-flow/issues"
+  },
+  "keywords": [
+    "node-editor",
+    "canvas",
+    "lit",
+    "web-components",
+    "flow",
+    "flowchart",
+    "graph",
+    "diagram",
+    "visual-programming",
+    "node-graph"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "unpkg": "./dist/index.js",
+  "jsdelivr": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./core": "./dist/core.js",
+    "./lit": "./dist/lit.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": [
+    "./dist/index.js",
+    "./dist/lit.js",
+    "./src/index.js",
+    "./src/lit/*.js"
+  ],
+  "files": [
+    "dist",
+    "src",
+    "docs/api.html",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "prepublishOnly": "npm test",
+    "prepack": "npm run build",
+    "release:check": "npm test && npm run build && npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "lit": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "lit": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "lit": "^3.2.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

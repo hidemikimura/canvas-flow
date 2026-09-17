@@ -1,0 +1,165 @@
+import '../src/index.js';
+
+const el = document.getElementById('editor');
+const stats = document.getElementById('stats');
+
+const TYPES = ['input', 'process', 'output', 'note'];
+const nodeTypes = {
+  input: { style: { headerFill: '#dbeafe', stroke: '#93c5fd' } },
+  process: { style: { headerFill: '#ede9fe', stroke: '#c4b5fd' } },
+  output: { style: { headerFill: '#dcfce7', stroke: '#86efac' } },
+  note: { style: { headerFill: '#fef3c7', fill: '#fffbeb', stroke: '#fcd34d' } },
+};
+
+/** グリッド状に n 個のノードと、隣接ノード間のコネクタを生成 */
+function generate(n) {
+  const cols = Math.ceil(Math.sqrt(n));
+  const gapX = 280;
+  const gapY = 160;
+  const nodes = [];
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const type = TYPES[i % TYPES.length];
+    const itemCount = 1 + (i % 3);
+    const items = [];
+    for (let k = 0; k < itemCount; k++) {
+      items.push({
+        id: `p${k}`,
+        label: ['value', 'threshold', 'mode'][k],
+        value: k === 0 ? String((i * 7) % 100) : k === 1 ? '0.5' : 'auto',
+        // value の入力は 1 本まで（満杯になると橙色）、threshold は 2 本まで、mode は無制限
+        input: k === 0 ? { max: 1 } : k === 1 ? 2 : true,
+        output: true,
+      });
+    }
+    nodes.push({
+      id: `n${i}`,
+      type,
+      title: `${type} #${i}`,
+      x: col * gapX,
+      y: row * gapY + (col % 2) * 20,
+      input: true,
+      // ヘッダの出力から開始できるコネクタは 3 本まで。note ノードは端子の丸を表示しない（接続は残る）
+      output: type === 'note' ? { max: 3, visible: false } : { max: 3 },
+      items,
+    });
+    // 左隣と接続（項目ポート同士）
+    if (col > 0) {
+      edges.push({
+        id: `e${i}a`,
+        source: `n${i - 1}`,
+        sourcePort: 'item:p0:out',
+        target: `n${i}`,
+        targetPort: 'item:p0:in',
+      });
+    }
+    // 上と接続（ヘッダポート同士）
+    if (row > 0 && i % 3 === 0) {
+      edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+    }
+  }
+  return { nodes, edges };
+}
+
+function regen() {
+  const n = Math.max(1, Number(document.getElementById('count').value) || 1);
+  const t0 = performance.now();
+  el.load(generate(n));
+  const t1 = performance.now();
+  el.editor.viewport.reset();
+  el.editor.viewport.panBy(40, 40);
+  el.editor.requestRender();
+  console.log(`generated ${n} nodes in ${(t1 - t0).toFixed(1)}ms`);
+}
+
+el.addEventListener('ready', () => {
+  el.nodeTypes = nodeTypes;
+  regen();
+});
+
+el.addEventListener('render', (e) => {
+  const ed = el.editor;
+  const { nodes, edges, ms } = e.detail;
+  stats.textContent = `描画: ${nodes} nodes / ${edges} edges / ${ms.toFixed(1)}ms  (全体 ${ed.graph.nodes.size} nodes, ${ed.graph.edges.size} edges)`;
+});
+
+const newNodeSpec = () => ({
+  type: 'process',
+  title: '新しいノード',
+  input: true,
+  output: true,
+  items: [{ label: 'value', value: '0', input: true, output: true }],
+});
+
+// 空白ダブルクリック → その位置（ヘッダ中央）に追加
+el.addEventListener('canvas-dblclick', (e) => {
+  el.addNodeAt(newNodeSpec(), { at: { x: e.detail.x, y: e.detail.y }, anchor: 'header' });
+});
+
+// N キー → マウス位置に追加（canvas 外なら画面中央）
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() !== 'n' || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  el.addNodeAtPointer(newNodeSpec(), { avoidOverlap: true });
+});
+
+// クリックイベント（コンソールで確認）
+el.addEventListener('node-click', (e) => {
+  const { node, item, header, shiftKey } = e.detail;
+  console.log('node-click', node.id, item ? `item=${item.id}` : header ? 'header' : 'body', shiftKey ? '(shift)' : '');
+});
+el.addEventListener('item-click', (e) => console.log('item-click', e.detail.node.id, e.detail.item.id, e.detail.item.label));
+el.addEventListener('edge-click', (e) => console.log('edge-click', e.detail.edge.id));
+el.addEventListener('canvas-click', (e) => console.log('canvas-click', Math.round(e.detail.x), Math.round(e.detail.y)));
+
+document.getElementById('regen').addEventListener('click', regen);
+document.getElementById('add').addEventListener('click', () => {
+  el.addNodeAtCenter(
+    { type: 'note', title: 'メモ', input: true, output: true, items: [{ label: 'text', value: 'ダブルクリックで編集', input: false, output: false }] },
+    { avoidOverlap: true },
+  );
+});
+document.getElementById('onfull').addEventListener('change', (e) => {
+  el.onFull = e.target.checked ? 'replace' : 'reject';
+});
+el.addEventListener('connect-rejected', (e) => {
+  console.log('接続数の上限に達しています', e.detail);
+});
+document.getElementById('snap').addEventListener('change', (e) => {
+  el.moveSnap = Number(e.target.value);
+});
+
+// コネクタの描画方法（選択中のコネクタがあればそれだけ、なければ全体）
+document.getElementById('edge-type').addEventListener('change', (e) => {
+  el.setSelectedEdgeType(e.target.value);
+});
+el.addEventListener('edge-type-change', (e) => {
+  if (!e.detail.edges) document.getElementById('edge-type').value = e.detail.type;
+});
+document.getElementById('dragmode').addEventListener('change', (e) => {
+  el.dragMode = e.target.checked ? 'select' : 'pan';
+});
+document.getElementById('theme').addEventListener('change', (e) => {
+  el.theme = e.target.checked
+    ? {
+        background: '#0f172a',
+        grid: { color: '#1e293b', majorColor: '#334155' },
+        node: { fill: '#1e293b', stroke: '#475569', headerFill: '#334155', titleColor: '#f1f5f9', textColor: '#cbd5e1', itemSeparator: '#334155', shadow: 'rgba(0,0,0,0.4)' },
+        edge: { stroke: '#64748b' },
+        port: { fill: '#1e293b', stroke: '#94a3b8', connectedFill: '#94a3b8' },
+        minimap: { background: 'rgba(15,23,42,0.9)', border: '#475569', node: '#64748b' },
+      }
+    : {
+        background: '#f6f7f9',
+        grid: { color: '#e0e3e8', majorColor: '#cfd4db' },
+        node: { fill: '#ffffff', stroke: '#c9ced6', headerFill: '#eef1f5', titleColor: '#1f2933', textColor: '#3b4652', itemSeparator: '#eef1f5', shadow: 'rgba(0,0,0,0.08)' },
+        edge: { stroke: '#7c8794' },
+        port: { fill: '#ffffff', stroke: '#64748b', connectedFill: '#64748b' },
+        minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8' },
+      };
+});
+
+// デバッグ用
+window.editor = el;

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>canvas-flow demo — 10,000 nodes</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; }
+      header {
+        display: flex; gap: 12px; align-items: center; padding: 8px 12px;
+        border-bottom: 1px solid #ddd; background: #fff; flex-wrap: wrap;
+      }
+      header label { display: inline-flex; gap: 4px; align-items: center; }
+      canvas-flow-editor { flex: 1; min-height: 0; }
+      #stats { color: #64748b; font-variant-numeric: tabular-nums; }
+      button { font: inherit; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>canvas-flow</strong>
+      <label>ノード数 <input id="count" type="number" value="10000" min="1" step="1000" style="width:7em" /></label>
+      <button id="regen">再生成</button>
+      <button id="add">ノード追加</button>
+      <label><input id="dragmode" type="checkbox" /> 空白ドラッグで範囲選択（Shift で切替）</label>
+      <label><input id="theme" type="checkbox" /> ダークテーマ</label>
+      <label title="value 入力は 1 本、threshold 入力は 2 本、ヘッダ出力は 3 本まで"><input id="onfull" type="checkbox" /> 満杯ポートへの接続は付け替え</label>
+      <label>移動単位 <select id="snap"><option value="0">なし</option><option value="8">8px</option><option value="16">16px</option><option value="32">32px（グリッド）</option><option value="50">50px</option></select></label>
+      <label>コネクタ <select id="edge-type"><option value="bezier">曲線</option><option value="straight">直線</option><option value="step">直角</option></select></label>
+      <span id="stats"></span>
+      <span style="margin-left:auto;color:#64748b">
+        ホイール: ズーム / Shift+ホイール: パン / Space+ドラッグ: パン / ダブルクリック: 編集 / N: マウス位置にノード追加 / Ctrl+D: 複製 / Delete: 削除
+      </span>
+    </header>
+    <canvas-flow-editor id="editor"></canvas-flow-editor>
+    <script type="module" src="/demo/main.js"></script>
+  </body>
+</html>
