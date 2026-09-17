@@ -628,7 +628,7 @@ Cloudflare ダッシュボードの Workers & Pages → Create → Pages → Con
 | 項目 | 値 |
 | --- | --- |
 | フレームワークプリセット | None |
-| ビルドコマンド | `npm ci && npm run docs:build` |
+| ビルドコマンド | `npm run docs:build` |
 | ビルド出力ディレクトリ | `docs` |
 | ルートディレクトリ | （空欄のまま） |
 
@@ -643,6 +643,12 @@ Cloudflare ダッシュボードの Workers & Pages → Create → Pages → Con
 - 入力欄が一切出てこない場合は、Pages ではなく Workers の「リポジトリをインポート」フローに入っている可能性があります。
   Workers & Pages → Create application →**Pages タブ**→ Connect to Git から進めてください
 - 作成後に変更するときは、プロジェクト → Settings → Builds & deployments → Build configurations の Edit です
+
+ビルドが `npm error Missing script: "docs:build"` で失敗する場合は、`package.json` や `vite.docs.config.js` が
+まだ push されていません（Cloudflare はリモートのリポジトリを clone してビルドします）。
+なお Cloudflare は依存関係を自分で `npm clean-install` してからビルドコマンドを実行するので、ビルドコマンド側で
+`npm ci` を重ねる必要はありません。ビルド環境の npm は install スクリプトを既定でブロックするため、
+`package.json` に `"allowScripts": { "esbuild": true }` を入れて esbuild（Vite が使う）のインストールを許可しています。
 
 `wrangler.toml` に `pages_build_output_dir = "docs"` を書いてあるので、出力先は自動で認識されます。
 以後 `main` への push ごとに本番デプロイ、それ以外のブランチはプレビューデプロイになります。

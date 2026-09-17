@@ -55,6 +55,9 @@
   "engines": {
     "node": ">=18"
   },
+  "allowScripts": {
+    "esbuild": true
+  },
   "publishConfig": {
     "access": "public"
   },
