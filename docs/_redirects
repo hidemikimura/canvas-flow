@@ -1,4 +1,6 @@
-# 短い URL（Cloudflare Pages の _redirects）
-/demo    /demo.html    301
-/api     /api.html     301
-/docs/*  /:splat       301
+# Workers の静的アセットは既定（html_handling = "auto-trailing-slash"）で
+# /demo.html → /demo の正規化リダイレクトを行うため、/demo → /demo.html を書くと
+# 無限リダイレクトになる。短い URL はこの既定の挙動でそのまま使える。
+#
+# リポジトリ内のパスで来た人だけ救済する
+/docs/*  /:splat  301

@@ -22,6 +22,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - ミニマップ（ドラッグで表示範囲を移動）
 - テーマ／ノード種別／ノード単位／コネクタ単位での見た目変更、描画関数の差し替え
 
+ドキュメントサイト: **https://canvas-flow.io**（[デモ](https://canvas-flow.io/demo) / [API 仕様書](https://canvas-flow.io/api)）
 ブラウザで触れるデモは [`docs/demo.html`](docs/demo.html) です（CDN から読み込むだけの 1 ファイル。ビルド不要）。
 API の詳細は同梱の仕様書 [`docs/api.html`](docs/api.html) を参照してください（パッケージにも含まれているので、`node_modules/@hidemikimura/canvas-flow/docs/api.html` をブラウザで開くだけで読めます）。
 
@@ -624,7 +625,7 @@ npx wrangler login     # 初回のみ（ブラウザで認証）
 npm run deploy:docs    # docs:build → wrangler deploy
 ```
 
-公開 URL は `https://canvas-flow.<アカウントのサブドメイン>.workers.dev` です。
+公開 URL は `https://canvas-flow.<アカウントのサブドメイン>.workers.dev`、独自ドメインは https://canvas-flow.io です。
 
 ### 方法 B: Git 連携（push で自動デプロイ）
 
@@ -643,9 +644,14 @@ Cloudflare ダッシュボードの Workers & Pages → Create application → W
 以後 `main` への push ごとに本番デプロイ、それ以外のブランチはプレビューデプロイになります。
 独自ドメインを使う場合はプロジェクトの Settings → Domains & Routes から追加してください。
 
-`docs/_headers`（セキュリティヘッダとキャッシュ制御）と `docs/_redirects`（`/demo`、`/api` の短縮 URL）は
-Workers の静的アセットでもそのまま解釈されます。存在しない URL には `docs/404.html` を返します
-（`not_found_handling = "404-page"`）。
+`docs/_headers`（セキュリティヘッダ）と `docs/_redirects` は Workers の静的アセットでもそのまま解釈されます。
+存在しない URL には `docs/404.html` を返します（`not_found_handling = "404-page"`）。
+
+URL の正規化は Workers の既定（`html_handling = "auto-trailing-slash"`）に任せています。`/demo.html` は `/demo` へ
+307 で正規化され、`/demo` がそのファイルを返します。**したがって `_redirects` に `/demo → /demo.html` を書いてはいけません**
+（正規化と往復して無限リダイレクトになります）。HTML ファイル内のリンクは `demo.html` のような相対パスのままにしてあり、
+ローカルでファイルを直接開いたときや npm パッケージに同梱された状態でも辿れるようにしています（公開サイトでは 307 が 1 回入ります）。
+`_headers` で同じヘッダ名を複数のルールに書くと値がカンマで連結されるため、`Cache-Control` は `/vendor/*` にだけ指定しています。
 
 ### つまずいたときは
 

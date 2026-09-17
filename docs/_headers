@@ -1,12 +1,10 @@
-# Cloudflare Pages のレスポンスヘッダ設定
+# レスポンスヘッダの設定。
+# 同じヘッダ名を複数のルールで指定すると値がカンマで連結されてしまうため、
+# Cache-Control は重複しないように /vendor/* だけに書く（HTML は Workers の既定に任せる）。
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
-
-# HTML は毎回確認させる（更新がすぐ反映されるように）
-/*.html
-  Cache-Control: public, max-age=0, must-revalidate
 
 # フォールバック用バンドル（毎回のデプロイで差し替わるので短め）
 /vendor/*
