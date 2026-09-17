@@ -465,6 +465,26 @@ export interface RenderStats {
   ms: number;
 }
 
+/** 右クリック（`context:menu` / `context-menu`）の内容 */
+export interface ContextMenuDetail {
+  /** 右クリックした対象の種類（`hitTest` と同じ） */
+  type: 'none' | 'node' | 'item' | 'port' | 'resize' | 'edge' | 'edge-delete';
+  node: Node | null;
+  item: NodeItem | null;
+  edge: Edge | null;
+  port: PortInfo | null;
+  /** ワールド座標 */
+  x: number;
+  y: number;
+  /** canvas 基準のスクリーン座標 */
+  screen: Point;
+  /** ビューポート基準（clientX / clientY） */
+  client: Point;
+  /** メニューを出す直前の選択 */
+  selection: { nodes: string[]; edges: string[] };
+  originalEvent: MouseEvent;
+}
+
 /** 描画関数の差し替え（`nodeRenderer` / `edgeRenderer`）に渡される補助オブジェクト */
 export interface RenderApi<Style> {
   selected: boolean;
@@ -495,10 +515,33 @@ export type EdgeRenderer = (
   api: RenderApi<EdgeStyle>,
 ) => boolean | void;
 
+/** `overlayRenderer` に渡される情報 */
+export interface OverlayInfo {
+  /** いま描画している範囲（ワールド座標） */
+  visible: Rect;
+  /** 簡易描画（LOD）中か */
+  lod: boolean;
+  zoom: number;
+  /** 描画対象のノード（子ノードも含む） */
+  nodes: Node[];
+  edges: Edge[];
+  theme: Theme;
+  graph: Graph;
+  roundRect(x: number, y: number, w: number, h: number, r: number): void;
+  fitText(text: string, w: number, font?: string): string;
+}
+
+/**
+ * ノード・エッジを描いたあとに呼ばれる追加描画。ワールド座標系で呼ばれるので、
+ * 画面上で一定の大きさにしたいものは `zoom` で割る。
+ */
+export type OverlayRenderer = (ctx: CanvasRenderingContext2D, info: OverlayInfo) => void;
+
 export class Renderer {
   constructor(canvas: HTMLCanvasElement, graph: Graph, viewport: Viewport, theme: Theme);
   renderNode: NodeRenderer | null;
   renderEdge: EdgeRenderer | null;
+  renderOverlay: OverlayRenderer | null;
   resolveNodeStyle: (node: Node) => NodeStyle;
   resolveEdgeStyle: (edge: Edge) => EdgeStyle;
   stats: RenderStats;
@@ -868,6 +911,8 @@ export interface NodeEditorEvents {
   'edges:delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type:change': { type: EdgeType; edges: string[] | null };
   'focus:change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[] };
+  'focus:select': { mode: FocusMode; nodes: string[]; edges: string[] };
+  'context:menu': ContextMenuDetail;
   'node:edit': { node: Node; rect: Rect; screenRect: Rect };
   'item:edit': { node: Node; item: NodeItem; rect: Rect; screenRect: Rect };
   'canvas:dblclick': Point;
@@ -911,6 +956,9 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   registerNodeType(type: string, def: NodeTypeDef): void;
   set nodeRenderer(fn: NodeRenderer | null);
   set edgeRenderer(fn: EdgeRenderer | null);
+  /** ノード・エッジを描いたあとに呼ばれる追加描画（バッジや分析表示など） */
+  get overlayRenderer(): OverlayRenderer | null;
+  set overlayRenderer(fn: OverlayRenderer | null);
 
   /** コネクタの描画方法。`edgeIds` を渡すとそのコネクタだけ（Undo 可） */
   setEdgeType(type: EdgeType | string, edgeIds?: readonly string[]): void;
@@ -928,6 +976,16 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   focusSet(): FocusSet | null;
   /** 繋がっている要素を選択に加える */
   selectConnected(options?: { depth?: number; direction?: FocusDirection }): { nodes: string[]; edges: string[] } | null;
+  /**
+   * 強調表示されている要素（`focusSet()` の中身）をそのまま選択する。
+   * 強調表示が off のときは `focusDirection` / `focusDepth` の設定どおりに辿って選択する。
+   * 選択ノードが無ければ null。
+   */
+  selectFocused(options?: {
+    additive?: boolean;
+    depth?: number;
+    direction?: FocusDirection;
+  }): { nodes: string[]; edges: string[] } | null;
 
   /* 移動単位 */
   setMoveSnap(step: number): void;

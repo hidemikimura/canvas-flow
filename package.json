@@ -1,6 +1,6 @@
 {
   "name": "@hidemikimura/canvas-flow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Fast Canvas 2D node editor library with a framework-agnostic core and a Lit Web Component / Canvas 2D ベースの高速ノードエディタライブラリ",
   "type": "module",
   "license": "MIT",

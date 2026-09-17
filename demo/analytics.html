@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>canvas-flow — シナリオ分析ビューの試作</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2933; }
+      body { display: flex; flex-direction: column; background: #f6f7f9; }
+      header {
+        display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+        padding: 8px 14px; background: #fff; border-bottom: 1px solid #e0e3e8;
+      }
+      header strong { font-size: 14px; }
+      header label { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+      .muted { color: #64748b; }
+      .legend { display: inline-flex; gap: 10px; align-items: center; }
+      .swatch { display: inline-block; width: 26px; height: 8px; border-radius: 4px; }
+      .sw-select { background: #3b82f6; }
+      .sw-exit { background: #ef4444; }
+      canvas-flow-editor { flex: 1; min-height: 0; }
+
+      /* ホバー詳細（canvas の上に重ねる HTML） */
+      .tip {
+        position: absolute; z-index: 5; pointer-events: none;
+        min-width: 210px; max-width: 320px;
+        padding: 9px 11px; border-radius: 8px;
+        background: rgba(255, 255, 255, 0.98); color: #1f2933;
+        border: 1px solid #c9ced6; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+        font: 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-variant-numeric: tabular-nums;
+      }
+      .tip[hidden] { display: none; }
+      .tip h4 { margin: 0 0 6px; font-size: 12px; }
+      .tip .sub { color: #64748b; font-size: 11px; margin: 0 0 6px; }
+      .tip table { width: 100%; border-collapse: collapse; }
+      .tip th, .tip td { text-align: right; padding: 2px 0 2px 10px; font-weight: 400; white-space: nowrap; }
+      .tip th { text-align: left; padding-left: 0; color: #3b4652; }
+      .tip tr.hot th, .tip tr.hot td { font-weight: 600; }
+      .tip .bar { height: 4px; border-radius: 2px; background: #3b82f6; }
+      .tip .barcell { width: 62px; padding-left: 8px; }
+      .tip .track { height: 4px; border-radius: 2px; background: #e5e9f0; }
+      .tip .exit { color: #b91c1c; }
+      .tip hr { border: 0; border-top: 1px solid #eef1f5; margin: 7px 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>シナリオ分析ビュー（試作）</strong>
+      <span class="muted">read-only のノードエディタに、項目行の割合バーとホバー詳細を重ねています</span>
+      <label><input id="bars" type="checkbox" checked /> 項目行のバー</label>
+      <label><input id="heat" type="checkbox" checked /> ノードのヒートマップ</label>
+      <label><input id="flow" type="checkbox" checked /> コネクタの太さ＝遷移数</label>
+      <span class="legend muted">
+        <span class="swatch sw-select"></span> 選択率
+        <span class="swatch sw-exit"></span> 離脱率
+      </span>
+      <span id="info" class="muted" style="margin-left:auto"></span>
+    </header>
+    <canvas-flow-editor id="editor" read-only minimap>
+      <div id="tip" class="tip" hidden></div>
+    </canvas-flow-editor>
+    <script type="module" src="/demo/analytics.js"></script>
+  </body>
+</html>

@@ -136,6 +136,22 @@ document.addEventListener('keydown', (e) => {
   el.addNodeAtPointer(newNodeSpec(), { avoidOverlap: true });
 });
 
+// 右クリックメニューに独自項目を足す例（既定の項目はそのまま残す）
+el.contextMenuItems = (ctx) => [
+  ...ctx.defaultItems,
+  { type: 'separator' },
+  {
+    id: 'log-target',
+    label: ctx.node ? `「${ctx.node.title}」の中身をログ出力` : ctx.edge ? 'このコネクタをログ出力' : 'グラフの件数をログ出力',
+    run: (c) => {
+      if (c.node) console.log('node', c.node.id, c.node);
+      else if (c.edge) console.log('edge', c.edge.id, c.edge);
+      else console.log('graph', c.graph.nodes.size, 'nodes /', c.graph.edges.size, 'edges');
+    },
+  },
+];
+el.addEventListener('context-menu-select', (e) => console.log('context-menu-select', e.detail.id));
+
 // クリックイベント（コンソールで確認）
 el.addEventListener('node-click', (e) => {
   const { node, item, header, shiftKey } = e.detail;

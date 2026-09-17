@@ -10,6 +10,8 @@ import type {
   CanvasFlowData,
   CanvasFlowInput,
   ChildNodeInput,
+  ContextMenuDetail,
+  Graph,
   ConnectRules,
   Edge,
   EdgeDeleteScope,
@@ -34,6 +36,37 @@ import type {
 export * from './core.js';
 
 /** `<canvas-flow-editor>` が発火する CustomEvent の名前 → detail の対応 */
+/** 右クリックメニューの 1 項目 */
+export interface ContextMenuItem {
+  /** 項目を見分ける ID（`context-menu-select` の detail に入る） */
+  id?: string;
+  label?: string;
+  /** 右端に薄く出すショートカット表記（動作は割り当てない） */
+  shortcut?: string;
+  /** ホバー時のツールチップ */
+  title?: string;
+  /** 区切り線にする */
+  type?: 'separator';
+  disabled?: boolean;
+  /** true で赤字（削除など） */
+  danger?: boolean;
+  /** 一覧から除く */
+  hidden?: boolean;
+  run?: (ctx: ContextMenuContext) => void | Promise<void>;
+}
+
+/** 項目を組み立てるときに渡される情報 */
+export interface ContextMenuContext extends ContextMenuDetail {
+  el: CanvasFlowEditor;
+  editor: NodeEditor;
+  graph: Graph;
+  /** 既定の項目（これに足す／絞るのが簡単） */
+  defaultItems: ContextMenuItem[];
+}
+
+/** 既定の項目を組み立てる（差し替え時に参考にできる） */
+export function defaultContextMenuItems(ctx: ContextMenuContext): ContextMenuItem[];
+
 export interface CanvasFlowEditorEventMap {
   ready: { editor: NodeEditor };
   'selection-change': { nodes: string[]; edges: string[] };
@@ -52,6 +85,10 @@ export interface CanvasFlowEditorEventMap {
   'edges-delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type-change': { type: EdgeType; edges: string[] | null };
   'focus-change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[] };
+  'focus-select': { mode: FocusMode; nodes: string[]; edges: string[] };
+  /** 右クリック。`preventDefault()` すると内蔵メニューを出さない */
+  'context-menu': ContextMenuDetail;
+  'context-menu-select': { id: string | null; item: ContextMenuItem; target: ContextMenuContext | null };
   'history-change': { canUndo: boolean; canRedo: boolean };
   'canvas-dblclick': Point;
   'edge-dblclick': { edge: Edge; at: Point };
@@ -112,6 +149,10 @@ export class CanvasFlowEditor extends LitElement {
   focusMode: FocusMode;
   /** 属性 `export-filename` */
   exportFilename: string;
+  /** 属性 `context-menu`。`"false"` で内蔵の右クリックメニューを無効にする（read-only では出ない） */
+  contextMenu: boolean;
+  /** 右クリックメニューの項目。配列か、対象ごとに項目を組み立てる関数 */
+  contextMenuItems: ContextMenuItem[] | ((ctx: ContextMenuContext) => ContextMenuItem[]) | null;
 
   /* 委譲メソッド */
   addNode(node: NodeInput): Node | null;
@@ -137,6 +178,10 @@ export class CanvasFlowEditor extends LitElement {
   /** 一番外側の親（自分が子でなければ自分自身） */
   rootNodeOf(nodeOrId: Node | string): Node | null;
   getPointer(): { world: Point; screen: Point; inside: boolean } | null;
+  /** 開いている右クリックメニューを閉じる */
+  closeContextMenu(): void;
+  /** 右クリックメニューを要素内の座標（px）に出す */
+  openContextMenuAt(x: number, y: number, detail?: Partial<ContextMenuDetail>): void;
   setPortVisible(nodeId: string, portKey: PortKey, visible: boolean): boolean;
   setPortsVisible(nodeId: string, visible: boolean, itemId?: string): boolean;
   setMoveSnap(step: number): void;
@@ -145,6 +190,12 @@ export class CanvasFlowEditor extends LitElement {
   setSelectedEdgeType(type: EdgeType | string): void;
   setFocusMode(mode: FocusMode | boolean, options?: { depth?: number; direction?: FocusDirection }): void;
   selectConnected(options?: { depth?: number; direction?: FocusDirection }): { nodes: string[]; edges: string[] } | null;
+  /** 強調表示されている要素をそのまま選択する（強調表示が off なら設定どおりに辿って選択） */
+  selectFocused(options?: {
+    additive?: boolean;
+    depth?: number;
+    direction?: FocusDirection;
+  }): { nodes: string[]; edges: string[] } | null;
   autoLayout(options?: AutoLayoutOptions): Map<string, Point> | null;
   undo(): boolean;
   redo(): boolean;

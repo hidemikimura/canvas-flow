@@ -102,7 +102,7 @@
 <div class="layout">
 <nav class="side" id="nav">
   <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
-  <div class="version">NodeEditor API 仕様書 · v0.2.0</div>
+  <div class="version">NodeEditor API 仕様書 · v0.3.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
@@ -123,6 +123,7 @@
     <li><a href="#m-edit">編集コマンド</a></li>
     <li><a href="#m-add">ノード追加</a></li>
     <li><a href="#m-childs">子ノード</a></li>
+    <li><a href="#m-context">右クリックメニュー</a></li>
     <li><a href="#m-layout">自動整列</a></li>
     <li><a href="#m-history">Undo / Redo</a></li>
     <li><a href="#m-view">ビュー操作</a></li>
@@ -262,7 +263,7 @@ import '@hidemikimura/canvas-flow/lit';</code></pre>
   <tr><td><code>options</code></td><td>object</td><td>コンストラクタのオプション（既定値でマージ済み）</td></tr>
   <tr><td><code>canvas</code></td><td>HTMLCanvasElement</td><td>描画先</td></tr>
   <tr><td><code>canUndo</code> / <code>canRedo</code></td><td>boolean（getter）</td><td>履歴の有無</td></tr>
-  <tr><td><code>nodeRenderer</code> / <code>edgeRenderer</code></td><td>function（setter）</td><td>独自描画関数。<a href="#m-appearance">見た目</a>を参照</td></tr>
+  <tr><td><code>nodeRenderer</code> / <code>edgeRenderer</code> / <code>overlayRenderer</code></td><td>function（setter）</td><td>独自描画関数・追加描画。<a href="#m-appearance">見た目</a>を参照</td></tr>
 </table>
 </section>
 
@@ -290,7 +291,7 @@ editor.setEdgeType('straight', ['e1']);     // e1 だけ
 editor.graph.addEdge({ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in', type: 'step' });</code></pre>
 <p>ドラッグ中の仮コネクタ・ヒットテスト・削除アイコンの位置（形状の中点）・簡易表示（LOD）も同じ形に従います。<code>'line'</code> → <code>'straight'</code>、<code>'orthogonal'</code> / <code>'smoothstep'</code> → <code>'step'</code> の別名は <code>normalizeEdgeType()</code> が丸めます。</p>
 </section>
-<section class="api" data-name="setFocusMode focusMode focusSet selectConnected 強調 ハイライト 薄く dim focus connected neighbors つながり">
+<section class="api" data-name="setFocusMode focusMode focusSet selectFocused selectConnected 強調を選択 強調 ハイライト 薄く dim focus connected neighbors つながり">
 <h3><span class="tag method">method</span><code>setFocusMode(mode, options?)</code> / <span class="tag prop">getter/setter</span><code>focusMode</code></h3>
 <p>選択ノードと<strong>同じ流れにある要素</strong>だけをはっきり描き、それ以外を薄くします。選択が空のときは自動的に解除されます。
 対象が変わると <code>'focus:change'</code>（<code>{ mode, direction, nodes, edges }</code>）が発火します。</p>
@@ -316,6 +317,18 @@ editor.setFocusMode('connected', { direction: 'downstream' }); // 進める先�
 editor.focusMode = 'off';</code></pre>
 <h3><span class="tag method">method</span><code>focusSet() → { nodes: Set, edges: Set } | null</code></h3>
 <p>現在の強調対象。無効なとき・選択が空のときは <code>null</code>（= 全部を通常描画）。選択とグラフの変更でキャッシュが破棄されます。</p>
+<h3><span class="tag method">method</span><code>selectFocused(options?) → { nodes, edges } | null</code></h3>
+<p>いま<strong>強調表示されている要素</strong>（<code>focusSet()</code> の中身）をそのまま選択します。選んだ流れをまとめて移動・複製・削除したいときに使います。ツールバーの「強調を選択」ボタンと <kbd>Ctrl/Cmd + Shift + A</kbd> からも呼べます。</p>
+<table>
+  <tr><th>オプション</th><th>意味</th></tr>
+  <tr><td><code>additive</code></td><td><code>true</code> でいまの選択に加える（既定 <code>false</code> = 置き換え）</td></tr>
+  <tr><td><code>depth</code> / <code>direction</code></td><td>強調表示の設定を使わず、この条件で辿り直して選択する</td></tr>
+</table>
+<pre><code>editor.selectFocused();                            // 強調されている要素で選択を置き換える
+editor.selectFocused({ additive: true });          // いまの選択に加える
+editor.selectFocused({ direction: 'downstream' }); // 向きを指定して辿り直す</code></pre>
+<p>強調表示が無効（<code>focusMode: 'off'</code>）のときは <code>focusDirection</code> / <code>focusDepth</code> の設定どおりに繋がりを辿って選択します。選択ノードが無ければ何もせず <code>null</code>。実行すると <code>'focus:select'</code>（<code>{ mode, nodes, edges }</code>）が発火します。選択操作なので <code>readOnly</code> でも使えます。</p>
+<div class="note">選択したあとは、その範囲がそのまま強調対象として固定されます（次に選択・グラフを変えるまで）。固定しないと「選択が増えた分だけ強調範囲も広がる」ため、押すたびに範囲が育ってしまいます。</div>
 <h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>selectConnected(options?) → { nodes, edges } | null</code></h3>
 <p>繋がっている要素を選択に加えます（まとめて移動・削除したいとき）。探索だけしたい場合は
 <code>graph.connectedTo(startIds, { depth, direction, includeStart })</code> を直接呼べます。</p>
@@ -325,10 +338,23 @@ editor.focusMode = 'off';</code></pre>
 <h3><span class="tag method">method</span><code>registerNodeType(type, { style })</code></h3>
 <p>ノード種別を登録します。スタイルの優先順位は <code>node.style</code> &gt; <code>nodeTypes[node.type].style</code> &gt; <code>theme.node</code> です。</p>
 </section>
-<section class="api" data-name="nodeRenderer edgeRenderer custom render">
+<section class="api" data-name="nodeRenderer edgeRenderer overlayRenderer custom render overlay バッジ 分析">
 <h3><span class="tag prop">setter</span><code>nodeRenderer = (ctx, node, rect, api) =&gt; boolean | void</code><br /><span class="tag prop">setter</span><code>edgeRenderer = (ctx, edge, geometry, api) =&gt; boolean | void</code></h3>
 <p>独自の描画関数を設定します（<code>null</code> で既定に戻す）。<code>true</code> を返すと既定描画を省略、それ以外は既定描画にフォールバックします。<code>api</code> には <code>selected</code>, <code>hover</code>, <code>style</code>, <code>lod</code>, <code>zoom</code>, <code>theme</code>, <code>graph</code>, <code>roundRect()</code>, <code>fitText()</code> が入ります。<code>geometry</code> は <code>{ type, x1, y1, x2, y2, points }</code>（<code>points</code> は折れ線の頂点列。<code>type === 'bezier'</code> のときは制御点 <code>c1x, c1y, c2x, c2y</code> も入る）です。</p>
 <div class="warn">独自描画関数が設定されている間は、縮小時の一括簡易描画（LOD）は使われず、各要素に対して関数が呼ばれます（<code>api.lod</code> で判断できます）。</div>
+<h3><span class="tag prop">setter/getter</span><code>overlayRenderer = (ctx, api) =&gt; void</code></h3>
+<p>ノードとコネクタを描いたあとに <strong>1 回だけ</strong>呼ばれる追加描画です（<code>null</code> で解除）。ノードの上に重ねたいもの（分析用のバーやバッジ、注釈）はここで描きます。<code>nodeRenderer</code> と違い既定描画を置き換えないので、縮小時の一括簡易描画もそのまま使われます。</p>
+<p><code>api</code> は <code>{ visible, lod, zoom, nodes, edges, theme, graph, roundRect(), fitText() }</code>。<code>nodes</code> / <code>edges</code> は表示範囲内の要素（子ノードも含む）です。ワールド座標系のまま呼ばれるので、画面上で一定の大きさにしたいものは <code>zoom</code> で割ります。</p>
+<pre><code>editor.overlayRenderer = (ctx, api) =&gt; {
+  if (api.lod) return;
+  for (const node of api.nodes) {
+    const r = api.graph.nodeRect(node);
+    ctx.fillStyle = '#3b82f6';
+    api.roundRect(r.x + 8, r.y + r.h - 6, (r.w - 16) * 0.42, 4, 2);
+    ctx.fill();
+  }
+};</code></pre>
+<div class="note">計測値をノードに重ねる例として、シナリオ分析ビューの試作が <code>demo/analytics.html</code> にあります（項目行の選択率バー・ヘッダの離脱率バー・ヒートマップ・コネクタの太さ・ホバー詳細）。</div>
 </section>
 
 <h2 id="m-render">サイズ・描画</h2>
@@ -491,6 +517,46 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
 <p>子ノードの配列（表示順）と、一番外側の親（自分が子でなければ自分自身）。引数はノードでも ID でも渡せます。さらに細かい問い合わせは <a href="#graph">Graph</a> 側の <code>isChild</code> / <code>parentOf</code> / <code>rootOf</code> / <code>depthOf</code> / <code>descendantIds</code> / <code>rootNodes</code> を使います。</p>
 </section>
 
+<h2 id="m-context">右クリックメニュー</h2>
+<section class="api" data-name="contextmenu context-menu 右クリック メニュー contextMenuItems closeContextMenu openContextMenuAt defaultContextMenuItems">
+<p>右クリックすると、対象（ノード／項目／コネクタ／空白）に応じたメニューが出ます。ブラウザ既定のメニューは常に抑制されます。未選択のものを右クリックした場合はそれを選択してからメニューを出し、選択中のノードを右クリックしたときは複数選択を保ちます（まとめて複製・削除できる）。<code>readOnly</code> のときと <code>context-menu="false"</code> のときはメニューを出しません（イベントだけ発火）。</p>
+<h3><span class="tag event">event</span><code>'context:menu'</code>（Lit: <code>context-menu</code>）</h3>
+<p>コアが出すのはこのイベントだけで、メニューの描画は Lit 版が担当します。<code>detail</code> は <code>{ type, node, item, edge, port, x, y, screen, client, selection, originalEvent }</code>。<code>type</code> は <a href="#m-coords">hitTest</a> と同じ（<code>none</code> / <code>node</code> / <code>item</code> / <code>port</code> / <code>resize</code> / <code>edge</code> / <code>edge-delete</code>）、<code>x</code> / <code>y</code> はワールド座標、<code>screen</code> は canvas 基準、<code>client</code> はビューポート基準です。</p>
+<pre><code>// 自前のメニューを出す（内蔵メニューは抑止）
+el.addEventListener('context-menu', (e) =&gt; {
+  e.preventDefault();
+  myMenu.open(e.detail.client.x, e.detail.client.y, e.detail);
+});</code></pre>
+<h3><span class="tag prop">property</span><code>contextMenuItems</code></h3>
+<p>内蔵メニューの項目。配列を渡すと常に同じメニュー、関数を渡すと対象ごとに組み立てられます。<code>ctx</code> はイベントの <code>detail</code> に <code>el</code> / <code>editor</code> / <code>graph</code> / <code>defaultItems</code> を足したものです。</p>
+<pre><code>el.contextMenuItems = (ctx) =&gt; [
+  ...ctx.defaultItems.filter((i) =&gt; i.id !== 'export'),
+  { type: 'separator' },
+  { id: 'log', label: 'ID をログ出力', shortcut: 'Ctrl+L', run: (c) =&gt; console.log(c.node?.id) },
+];</code></pre>
+<table>
+  <tr><th>項目のフィールド</th><th>意味</th></tr>
+  <tr><td><code>id</code></td><td>項目を見分ける ID（<code>context-menu-select</code> の detail に入る）</td></tr>
+  <tr><td><code>label</code></td><td>表示名</td></tr>
+  <tr><td><code>shortcut</code></td><td>右端に薄く出す表記（動作は割り当てない）</td></tr>
+  <tr><td><code>disabled</code> / <code>hidden</code></td><td>無効表示 / 一覧から除く</td></tr>
+  <tr><td><code>danger</code></td><td><code>true</code> で赤字（削除など）</td></tr>
+  <tr><td><code>run(ctx)</code></td><td>実行する処理（非同期でもよい）</td></tr>
+  <tr><td><code>{ type: 'separator' }</code></td><td>区切り線。先頭・末尾・連続したものは自動で削られる</td></tr>
+</table>
+<p>既定の項目は <code>defaultContextMenuItems(ctx)</code> として公開しています（<code>@hidemikimura/canvas-flow</code> / <code>/lit</code> から import）。対象ごとの内容は次のとおりです。</p>
+<table>
+  <tr><th>対象</th><th>項目</th></tr>
+  <tr><td>ノード・項目</td><td>複製 / 削除 / つながりを外す / 子ノードを追加 / 強調されている要素を選択 / つながっている要素を選択 / コピー / このノードを中心に</td></tr>
+  <tr><td>子ノード</td><td>この子ノードを複製 / この子ノードを削除 / 子ノードを親から出す（ほかはノードと同じ）</td></tr>
+  <tr><td>コネクタ</td><td>このコネクタを削除 / 曲線・直線・直角にする / 両端のノードを選択</td></tr>
+  <tr><td>空白</td><td>ここにノードを追加 / 貼り付け / すべて選択 / 選択を解除 / 整列 / 全体表示 / 縮尺をリセット / JSON を書き出し</td></tr>
+</table>
+<h3><span class="tag method">method</span><code>closeContextMenu()</code> / <code>openContextMenuAt(x, y, detail?)</code></h3>
+<p>閉じる・任意の位置（要素内の px）に出す。ツールバーの「…」ボタンから同じメニューを出したいときなどに使います。</p>
+<div class="note">キーボードは ↑ ↓ で移動、Enter で実行、Escape で閉じる。外 のクリック・ズーム・パンでも閉じます。見た目は <code>part="context-menu"</code> で上書きできます。</div>
+</section>
+
 <h2 id="m-layout">自動整列</h2>
 <section class="api" data-name="autoLayout layeredLayout layout">
 <h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>autoLayout(options?) → string[]</code></h3>
@@ -618,6 +684,9 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>layout</code></td><td><code>layout</code></td><td><code>{ nodes: string[] }</code></td><td>自動整列を適用した</td></tr>
   <tr><td><code>edge-type:change</code></td><td><code>edge-type-change</code></td><td><code>{ type, edges: string[] | null }</code></td><td>コネクタの描画方法を変えた（<code>edges</code> が null なら全体の既定）</td></tr>
   <tr><td><code>focus:change</code></td><td><code>focus-change</code></td><td><code>{ mode, direction, nodes: string[], edges: string[] }</code></td><td>強調表示の対象が変わった</td></tr>
+  <tr><td><code>focus:select</code></td><td><code>focus-select</code></td><td><code>{ mode, nodes: string[], edges: string[] }</code></td><td>強調表示されている要素を選択した（<code>selectFocused</code>）</td></tr>
+  <tr><td><code>context:menu</code></td><td><code>context-menu</code></td><td><code>{ type, node, item, edge, port, x, y, screen, client, selection, originalEvent }</code></td><td>右クリック。Lit 側の <code>context-menu</code> は <code>preventDefault()</code> で内蔵メニューを抑止できる</td></tr>
+  <tr><td>—</td><td><code>context-menu-select</code></td><td><code>{ id, item, target }</code></td><td>右クリックメニューの項目を実行した（Lit のみ）</td></tr>
   <tr><td><code>edges:delete</code></td><td><code>edges-delete</code></td><td><code>{ ids: string[], scope }</code></td><td>選択範囲内のコネクタだけを削除した</td></tr>
   <tr><td><code>insert</code></td><td><code>insert</code></td><td><code>{ at, anchor, nodes, edges }</code></td><td><code>insertJSON</code> で JSON を指定位置に追加した</td></tr>
   <tr><td><code>render</code></td><td><code>render</code></td><td><code>{ nodes, edges, ms }</code></td><td>描画後の統計</td></tr>
@@ -797,8 +866,9 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>move-snap</code></td><td>0</td><td>ノードの移動単位（px）</td></tr>
   <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
   <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
+  <tr><td><code>context-menu</code></td><td>有効</td><td><code>"false"</code> で内蔵の右クリックメニューを無効（<code>read-only</code> では出ない）。項目は <code>contextMenuItems</code> で差し替え</td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectConnected</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -817,6 +887,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td>Delete / Backspace</td><td>選択を削除</td></tr>
   <tr><td>Shift + Delete / Backspace</td><td>選択範囲内のコネクタだけを削除（ノードは残す）</td></tr>
   <tr><td>Ctrl/Cmd + A / C / V / D</td><td>全選択 / コピー / 貼り付け（カーソル位置）/ 複製</td></tr>
+  <tr><td>Ctrl/Cmd + Shift + A</td><td>強調表示されている要素をまとめて選択（<code>selectFocused</code>。ツールバー「強調を選択」も同じ）</td></tr>
+  <tr><td>右クリック</td><td>対象に応じたメニュー（↑ ↓ で移動、Enter で実行、Escape で閉じる）</td></tr>
   <tr><td>Ctrl/Cmd + Z / Shift+Z / Y</td><td>Undo / Redo</td></tr>
   <tr><td>Ctrl/Cmd + 0 / + / −</td><td>縮尺リセット / 拡大 / 縮小</td></tr>
   <tr><td>矢印キー（Shift で 10 倍）</td><td>選択ノードを微移動（1px。<code>moveSnap</code> 設定時はその単位）</td></tr>
@@ -825,7 +897,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.2.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.3.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

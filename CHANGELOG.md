@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-17
+
+### 追加
+- **右クリックメニュー**: 対象（ノード／項目／子ノード／コネクタ／空白）ごとに項目を出し分ける内蔵メニュー。未選択のものは右クリックで選択され、選択中なら複数選択を保つ。コアは `context:menu` イベント（`{ type, node, item, edge, port, x, y, screen, client, selection, originalEvent }`）を発火し、描画は Lit 版が担当する。項目は `contextMenuItems`（配列 or `(ctx) => 項目[]`、`ctx.defaultItems` に既定の項目）で差し替え・追加でき、`context-menu` イベントを `preventDefault()` すれば自前のメニューに置き換えられる。`closeContextMenu()` / `openContextMenuAt(x, y)`、実行時に `context-menu-select`、属性 `context-menu="false"` で無効、`read-only` では出さない。既定項目を組み立てる `defaultContextMenuItems(ctx)` も公開
+- ノード・コネクタを描いたあとに呼ばれる追加描画 `overlayRenderer`（`(ctx, { visible, lod, zoom, nodes, edges, theme, graph, roundRect, fitText })`）。ノードの上にバーやバッジを重ねられる。`nodeRenderer` と違い既定描画・LOD の一括描画をそのまま使う
+- シナリオ分析ビューの試作 `demo/analytics.html`（項目行の選択率バー、ヘッダの離脱率バー、ノードのヒートマップ、コネクタの太さ＝遷移数、ホバーで詳細を出す HTML の吹き出し）
+- 強調表示されている要素をまとめて選択する `selectFocused(options?)`（`{ additive?, depth?, direction? }`）。ツールバーの「強調を選択」ボタンと Ctrl/Cmd + Shift + A からも実行できる。強調表示が無効のときは `focusDirection` / `focusDepth` の設定どおりに辿って選択する。選択後に `focus:select`（Lit: `focus-select`、`{ mode, nodes, edges }`）が発火。選択した範囲はそのまま強調対象として固定される（次の選択・グラフ変更まで）ため、繰り返し押しても範囲が広がらない
+
+### 変更
+- 右クリックでブラウザ既定のメニューを抑制するだけだった挙動を変え、`context:menu` イベントを発火するようになった（未選択のノード・コネクタを右クリックすると選択される）
+- `Ctrl/Cmd + Shift + A` を「強調表示されている要素をまとめて選択」に割り当てた（`Ctrl/Cmd + A` の全選択は従来どおり）
+
 ## [0.2.0] - 2026-09-17
 
 ### 追加
@@ -41,6 +53,7 @@
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html`
 
-[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hidemikimura/canvas-flow/releases/tag/v0.1.0

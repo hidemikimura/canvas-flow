@@ -33,7 +33,7 @@ import {
   type CanvasFlowData,
   type PortInfo,
 } from '../../types/core.js';
-import { CanvasFlowEditor } from '../../types/lit.js';
+import { CanvasFlowEditor, defaultContextMenuItems } from '../../types/lit.js';
 
 /* ---------- コア ---------- */
 
@@ -222,6 +222,10 @@ if (fset) console.log(fset.nodes.size, fset.edges.has('e1'));
 const picked = editor.selectConnected({ direction: 'upstream' });
 console.log(mode, picked?.nodes.length);
 editor.on('focus:change', (d) => console.log(d.mode, d.direction, d.nodes.length, d.edges.length));
+const focused = editor.selectFocused();
+const focusedAdd = editor.selectFocused({ additive: true, direction: 'both' });
+console.log(focused?.nodes.length, focusedAdd?.edges.length);
+editor.on('focus:select', (d) => console.log(d.mode, d.nodes.length, d.edges.length));
 const reach = graph.connectedTo(['n1'], { depth: 1, includeStart: false });
 console.log(reach.nodes.size, reach.edges.size);
 
@@ -242,6 +246,8 @@ el.setSelectedEdgeType('straight');
 el.focusMode = 'connected';
 el.setFocusMode('neighbors', { depth: 2 });
 el.addEventListener('focus-change', (e) => console.log(e.detail.mode, e.detail.direction, e.detail.nodes.length));
+el.addEventListener('focus-select', (e) => console.log(e.detail.mode, e.detail.nodes.length, e.detail.edges.length));
+console.log(el.selectFocused()?.nodes.length, el.selectFocused({ additive: true })?.edges.length);
 console.log(el.canUndo, el.toJSON().nodes.length);
 el.addChild('parent', { title: '子', items: [{ id: 'q', label: 'q', input: true }] });
 console.log(el.childrenOf('parent').length, el.rootNodeOf('parent')?.id);
@@ -286,6 +292,48 @@ console.log(editor.childrenOf('parent').length, editor.rootNodeOf('parent')?.id)
 editor.setParent('parent', null);
 console.log(editor.removeChild('parent')?.id);
 
+/* ---------- 追加描画（オーバーレイ） ---------- */
+
+editor.overlayRenderer = (ctx, info) => {
+  for (const node of info.nodes) {
+    const rect = info.graph.nodeRect(node);
+    ctx.fillStyle = 'rgba(59,130,246,0.3)';
+    ctx.fillRect(rect.x, rect.y + rect.h, rect.w / 2, 4 / info.zoom);
+    if (!info.lod) console.log(info.fitText(node.title ?? '', rect.w), info.visible.w, info.theme.lodZoom);
+  }
+};
+editor.overlayRenderer = null;
+
+/* ---------- 右クリックメニュー ---------- */
+
+editor.on('context:menu', (d) => {
+  console.log(d.type, d.node?.id, d.item?.label, d.edge?.id, d.x, d.y, d.screen.x, d.client.y, d.selection.nodes.length);
+  d.originalEvent.preventDefault();
+});
+el.contextMenu = false;
+el.contextMenuItems = [{ id: 'only', label: '固定', run: () => {} }];
+el.contextMenuItems = (ctx) => [
+  ...ctx.defaultItems.filter((i) => i.id !== 'export'),
+  { type: 'separator' },
+  {
+    id: 'log',
+    label: 'ID をログ出力',
+    shortcut: 'Ctrl+L',
+    danger: false,
+    disabled: ctx.type === 'none',
+    run: (c) => console.log(c.node?.id ?? c.edge?.id, c.el.tagName, c.editor.focusMode, c.graph.nodes.size),
+  },
+];
+el.contextMenuItems = defaultContextMenuItems;
+el.addEventListener('context-menu', (e) => {
+  console.log(e.detail.type, e.detail.node?.title);
+  if (e.detail.type === 'none') e.preventDefault();
+});
+el.addEventListener('context-menu-select', (e) => console.log(e.detail.id, e.detail.item.label, e.detail.target?.type));
+el.closeContextMenu();
+el.openContextMenuAt(10, 20);
+el.openContextMenuAt(10, 20, { type: 'node' });
+
 /* ---------- 間違った使い方はエラーになること ---------- */
 
 // @ts-expect-error 未知の描画方法
@@ -311,3 +359,11 @@ graph.connectedTo(['n1'], { direction: 'sideways' });
 graph.addNode({ x: 0, y: 0, childs: ['child'] });
 // @ts-expect-error parentId は string か null
 graph.setParent('kid', 123);
+
+// @ts-expect-error additive は boolean
+editor.selectFocused({ additive: 'yes' });
+
+// @ts-expect-error run は関数
+el.contextMenuItems = [{ id: 'x', label: 'x', run: 'nope' }];
+// @ts-expect-error 区切り線の type は 'separator' だけ
+el.contextMenuItems = [{ type: 'divider' }];

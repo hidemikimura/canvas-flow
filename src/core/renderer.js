@@ -22,6 +22,12 @@ export class Renderer {
     this.renderNode = null;
     /** @type {((ctx:CanvasRenderingContext2D, edge:any, geom:any, api:any)=>boolean|void)|null} */
     this.renderEdge = null;
+    /**
+     * @type {((ctx:CanvasRenderingContext2D, info:{visible:object, lod:boolean, zoom:number, nodes:any[], edges:any[], state:object, theme:object, graph:object, roundRect:Function, fitText:Function})=>void)|null}
+     * ノード・エッジを描いたあとに呼ばれる追加描画（バッジや分析表示など）。
+     * ワールド座標系のまま呼ばれるので、画面上で一定の大きさにしたいものは `zoom` で割る。
+     */
+    this.renderOverlay = null;
     /** @type {(node:any)=>object} ノードのスタイル解決（種別スタイル + node.style） */
     this.resolveNodeStyle = (node) => (node.style ? { ...theme.node, ...node.style } : theme.node);
     this.resolveEdgeStyle = (edge) => (edge.style ? { ...theme.edge, ...edge.style } : theme.edge);
@@ -122,6 +128,24 @@ export class Renderer {
         this._drawNode(n, state, lod);
       }
       this._flushPorts();
+    }
+
+    // --- 追加描画（ノードより手前。分析表示やバッジなど） ---
+    if (this.renderOverlay) {
+      ctx.save();
+      this.renderOverlay(ctx, {
+        visible,
+        lod,
+        zoom: vp.zoom,
+        nodes,
+        edges,
+        state,
+        theme,
+        graph: this.graph,
+        roundRect: (x, y, w, h, r) => this._roundRect(x, y, w, h, r),
+        fitText: (text, w, font) => this._fit(text, w, font),
+      });
+      ctx.restore();
     }
 
     // --- コネクタの削除アイコン（ノードより手前） ---

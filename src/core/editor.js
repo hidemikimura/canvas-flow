@@ -37,10 +37,12 @@ export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, ED
  *  - 'insert'                 { at, anchor, nodes, edges }  insertJSON で JSON を指定位置に追加した
  *  - 'edge-type:change'       { type, edges: string[]|null }  コネクタの描画方法を変えた（edges が null なら全体の既定）
  *  - 'focus:change'           { mode, direction, nodes: string[], edges: string[] }  強調表示の対象が変わった
+ *  - 'focus:select'           { mode, nodes: string[], edges: string[] }  強調表示されている要素を選択した
  *  - 'node:click'             { node, item, header, port, x, y, screen, shiftKey, ... }  ノードをクリック（ドラッグせずに離した）
  *  - 'item:click'             { node, item, x, y, ... }  ノード内の項目をクリック（node:click も続けて発火）
  *  - 'edge:click'             { edge, x, y, ... }
  *  - 'canvas:click'           { x, y, ... }  空白をクリック
+ *  - 'context:menu'           { type, node, item, edge, port, x, y, screen, client, selection, originalEvent }  右クリック（既定のブラウザメニューは抑制される）
  */
 export class NodeEditor extends Emitter {
   /**
@@ -92,6 +94,8 @@ export class NodeEditor extends Emitter {
     this._clipboard = null;
     /** 強調表示の対象のキャッシュ（選択・グラフ変更で破棄） */
     this._focusCache = null;
+    /** selectFocused() 実行中だけ入る、固定したい強調対象 */
+    this._pinnedFocus = null;
     this._raf = 0;
     this._anim = null;
 
@@ -324,6 +328,44 @@ export class NodeEditor extends Emitter {
     };
   }
 
+  /**
+   * いま強調表示されている要素（`focusSet()` の中身）をそのまま選択する。
+   * 強調表示が無効（focusMode: 'off'）のときは `focusDirection` / `focusDepth` の設定どおりに
+   * 繋がりを辿って選択する（`selectConnected()` と同じ挙動）。
+   * @param {{additive?:boolean, depth?:number, direction?:'lineage'|'downstream'|'upstream'|'both'}} [options]
+   *   additive: 既存の選択に加える（既定 false = 置き換え）
+   * @returns {{nodes:string[], edges:string[]}|null} 選択が空なら null
+   */
+  selectFocused(options) {
+    if (!this.selection.nodes.size) return null;
+    const set =
+      (options?.depth == null && options?.direction == null ? this.focusSet() : null) ??
+      this.graph.connectedTo(this.selection.nodes, {
+        depth: options?.depth ?? (this.focusMode === 'neighbors' ? Math.max(1, this.options.focusDepth || 1) : Infinity),
+        direction: options?.direction ?? this.options.focusDirection,
+      });
+    const nodes = [...set.nodes];
+    const edges = [...set.edges];
+    const additive = !!options?.additive;
+    // 選択後の範囲をそのまま強調対象として固定する。
+    // そうしないと「選択が増えた分だけ強調範囲も広がる」ため、押すたびに範囲が育ってしまう。
+    // 固定は次の選択変更・グラフ変更までで、そこからは通常の計算に戻る。
+    this._pinnedFocus =
+      this.focusMode === 'off'
+        ? null
+        : {
+            nodes: new Set(additive ? [...this.selection.nodes, ...nodes] : nodes),
+            edges: new Set(additive ? [...this.selection.edges, ...edges] : edges),
+          };
+    try {
+      this.select({ nodes, edges }, { additive });
+    } finally {
+      this._pinnedFocus = null;
+    }
+    this.emit('focus:select', { nodes, edges, mode: this.focusMode });
+    return { nodes, edges };
+  }
+
   /** 強調表示の対象を選択に加える（繋がりを丸ごと選びたいとき） */
   selectConnected(options) {
     const nodes = [...this.selection.nodes];
@@ -357,6 +399,20 @@ export class NodeEditor extends Emitter {
   set edgeRenderer(fn) {
     this.renderer.renderEdge = fn;
     this.requestRender();
+  }
+
+  /**
+   * ノード・エッジを描いたあとに呼ばれる追加描画（null で解除）。
+   * ワールド座標系で呼ばれる。画面上で一定の大きさにしたいものは第 2 引数の `zoom` で割る。
+   * @param {((ctx:CanvasRenderingContext2D, info:object)=>void)|null} fn
+   */
+  set overlayRenderer(fn) {
+    this.renderer.renderOverlay = fn;
+    this.requestRender();
+  }
+
+  get overlayRenderer() {
+    return this.renderer.renderOverlay;
   }
 
   /* ---------- サイズ・描画 ---------- */
@@ -528,7 +584,8 @@ export class NodeEditor extends Emitter {
   /* ---------- 選択 ---------- */
 
   _emitSelection() {
-    this._focusCache = null;
+    // selectFocused() の実行中だけは、選択した範囲を強調対象として固定する
+    this._focusCache = this._pinnedFocus ?? null;
     this.emit('selection:change', { nodes: [...this.selection.nodes], edges: [...this.selection.edges] });
     if (this.focusMode !== 'off') this.emit('focus:change', this._focusDetail());
     this.minimap?.invalidate();

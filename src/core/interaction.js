@@ -40,7 +40,35 @@ export class Interaction {
     this._onPointerUp = this._onPointerUp.bind(this);
     this._onWheel = this._onWheel.bind(this);
     this._onDblClick = this._onDblClick.bind(this);
-    this._onContextMenu = (e) => e.preventDefault();
+    this._onContextMenu = (e) => {
+      e.preventDefault(); // ブラウザ既定のメニューは常に抑制する
+      const ed = this.editor;
+      const w = ed.clientToWorld(e.clientX, e.clientY);
+      const hit = ed.hitTest(w.x, w.y);
+      // 未選択のものを右クリックしたらそれを選択してからメニューを出す（選択中ならそのまま）
+      if (hit.type === 'node' || hit.type === 'item' || hit.type === 'port' || hit.type === 'resize') {
+        const target = ed.graph.rootOf(hit.node) ?? hit.node;
+        if (!ed.selection.nodes.has(hit.node.id) && !ed.selection.nodes.has(target.id)) {
+          ed.select({ nodes: [target.id] });
+        }
+      } else if (hit.type === 'edge' || hit.type === 'edge-delete') {
+        if (!ed.selection.edges.has(hit.edge.id)) ed.select({ edges: [hit.edge.id] });
+      }
+      const rect = this.canvas.getBoundingClientRect();
+      ed.emit('context:menu', {
+        type: hit.type,
+        node: hit.node ?? null,
+        item: hit.item ?? null,
+        edge: hit.edge ?? null,
+        port: hit.port ?? null,
+        x: w.x,
+        y: w.y,
+        screen: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+        client: { x: e.clientX, y: e.clientY },
+        selection: { nodes: [...ed.selection.nodes], edges: [...ed.selection.edges] },
+        originalEvent: e,
+      });
+    };
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
 
@@ -660,7 +688,9 @@ export class Interaction {
       return true;
     }
     if (mod && (key === 'a' || key === 'A')) {
-      ed.selectAll();
+      // Shift 付きなら強調表示されている要素をまとめて選択
+      if (e.shiftKey) ed.selectFocused();
+      else ed.selectAll();
       return true;
     }
     if (mod && (key === 'c' || key === 'C')) {

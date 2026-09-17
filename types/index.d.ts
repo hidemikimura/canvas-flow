@@ -5,5 +5,5 @@
  *   import '@hidemikimura/canvas-flow';
  */
 export * from './core.js';
-export { CanvasFlowEditor } from './lit.js';
-export type { CanvasFlowEditorEventMap } from './lit.js';
+export { CanvasFlowEditor, defaultContextMenuItems } from './lit.js';
+export type { CanvasFlowEditorEventMap, ContextMenuItem, ContextMenuContext } from './lit.js';

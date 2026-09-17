@@ -10,8 +10,9 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - 選択・範囲選択・ドラッグ移動・一括移動・複製・コピー＆ペースト・削除
 - 移動単位の指定（例: 16px 刻み）。ドラッグ・矢印キー・ノード追加の位置が指定単位に揃う
 - コネクタのホバー／選択時に中央へ削除アイコンを表示し、クリックで削除
+- 右クリックメニュー（対象ごとに項目を出し分け。項目の差し替え・追加や、独自メニューへの置き換えも可）
 - コネクタの描画方法を曲線（ベジェ）／直線／直角（階段状）から選べる。全体の既定とコネクタ単位の両方で指定可
-- 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）
+- 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）。強調されている要素はまとめて選択できる
 - ノードの中に子ノードを入れられる（`childs`）。何段でも入れ子にでき、位置と幅は親が自動計算する
 - 自動整列（階層レイアウト）: コネクタが左から右へ流れ、他のノードの上を横切らないように並べ直す
 - Undo / Redo（ドラッグやリサイズは 1 操作にまとめて記録）
@@ -93,6 +94,7 @@ const node: Node = editor.graph.addNode({ x: 0, y: 0, title: 'Source', output: t
 ```bash
 npm install          # 依存関係（lit, vite, vitest）
 npm run dev          # デモ (index.html) を http://localhost:5173 で起動
+                     #   /demo/analytics.html … 計測値を重ねる分析ビューの試作
 npm test             # コアのユニットテスト
 npm run test:types   # 型定義の検証（tsc --noEmit）
 npm run build        # dist/ にライブラリをビルド（ESM）
@@ -151,6 +153,7 @@ npm run build        # dist/ にライブラリをビルド（ESM）
 | `move-snap` | number | 0（無効） | ノードの移動単位（px）。ドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う |
 | `edge-type` | `'bezier' \| 'straight' \| 'step'` | `'bezier'` | コネクタの描画方法の既定（曲線 / 直線 / 直角の階段状）。コネクタ単位は `edge.type` |
 | `focus-mode` | `'off' \| 'connected' \| 'neighbors'` | `'off'` | 選択ノードと同じ流れにある要素を強調し、他を薄く描く |
+| `context-menu` | boolean | `true` | 内蔵の右クリックメニュー（`"false"` で無効。`read-only` では出ない） |
 
 コア `NodeEditor` のオプションにはさらに `historyLimit`（既定 200）、`minNodeWidth`（既定 100）、`keyboardScope`（キーボード操作を受け付ける範囲の要素）、`rules`（`{ maxInputs, maxOutputs, onFull }`）、`edgeDeleteIcon`（既定 true）、`wheelGestureGap`（既定 250ms。この間隔以内のホイールイベントは同じ操作として扱う）があります。
 
@@ -297,11 +300,26 @@ el.theme = {
 
 ```js
 el.editor.focusSet();          // → { nodes: Set, edges: Set } | null（無効・未選択なら null）
+el.selectFocused();            // 強調表示されている要素をそのまま選択（下記）
 el.selectConnected();          // 繋がっている要素を選択に加える（まとめて移動・削除したいとき）
 el.editor.graph.connectedTo(['n1'], { depth: 1, direction: 'lineage' });  // 純粋な探索だけ（この API の既定は 'both'）
 ```
 
 強調対象が変わると `focus-change`（`{ mode, direction, nodes, edges }`）が発火します。
+
+##### 強調表示されている要素をまとめて選択する
+
+薄く表示されていない側（強調されているノードとコネクタ）をそのまま選択状態にできます。ツールバーの「強調を選択」ボタン、**Ctrl/Cmd + Shift + A**、または `selectFocused()` で実行できます。選んだ流れをまとめて移動・複製・削除したいときに使ってください。
+
+```js
+el.selectFocused();                                   // 強調されている要素で選択を置き換える
+el.selectFocused({ additive: true });                 // いまの選択に加える
+el.selectFocused({ direction: 'downstream' });        // 向きや depth を指定して辿り直す
+```
+
+強調表示が無効（`focus-mode="off"`）のときは `focusDirection` / `focusDepth` の設定どおりに繋がりを辿って選択します。選択ノードが無いときは何もせず `null` を返します。選択後は `focus-select`（`{ mode, nodes, edges }`）が発火します。読み取り専用（`read-only`）でも選択は操作なので使えます。
+
+選択したあとは、その範囲がそのまま強調対象として固定されます（次に選択やグラフを変えるまで）。固定しないと「選択が増えた分だけ強調範囲も広がる」ため、ボタンを押すたびに範囲が育ってしまうためです。
 
 #### ノードの中の子ノード（`childs`）
 
@@ -353,6 +371,44 @@ el.rootNodeOf('n2');                           // 一番外側の親（自分が
 ```js
 el.theme = { node: { childIndent: 16, childGap: 10 } };   // editor.setTheme(...) でも同じ
 ```
+
+#### 右クリックメニュー
+
+右クリックすると、対象（ノード／項目／コネクタ／空白）に応じたメニューが出ます。ブラウザ既定のメニューは常に抑制されます。未選択のものを右クリックした場合はそれを選択してからメニューを出し、選択中のノードを右クリックしたときは複数選択を保ったままなので、まとめて複製・削除できます。`read-only` のときと `context-menu="false"` のときは出ません（イベントだけ発火します）。
+
+既定の項目は次のとおりです。
+
+| 対象 | 項目 |
+| --- | --- |
+| ノード・項目 | 複製 / 削除 / つながりを外す / 子ノードを追加 / 強調されている要素を選択 / つながっている要素を選択 / コピー / このノードを中心に |
+| 子ノード | この子ノードを複製 / この子ノードを削除 / 子ノードを親から出す（ほかはノードと同じ） |
+| コネクタ | このコネクタを削除 / 曲線・直線・直角にする / 両端のノードを選択 |
+| 空白 | ここにノードを追加 / 貼り付け / すべて選択 / 選択を解除 / 整列 / 全体表示 / 縮尺をリセット / JSON を書き出し |
+
+項目は `contextMenuItems` で差し替え・追加できます。関数を渡すと対象ごとに組み立てられ、`ctx.defaultItems` に既定の項目が入っています。
+
+```js
+el.contextMenuItems = (ctx) => [
+  ...ctx.defaultItems.filter((i) => i.id !== 'export'),   // 既定から外す
+  { type: 'separator' },
+  { id: 'log', label: 'ID をログ出力', shortcut: 'Ctrl+L', run: (c) => console.log(c.node?.id) },
+];
+
+el.contextMenuItems = [{ id: 'only', label: '固定の項目', run: () => {} }];  // 配列なら常に同じメニュー
+```
+
+項目は `{ id, label, shortcut?, title?, disabled?, danger?, hidden?, run(ctx) }`、区切り線は `{ type: 'separator' }` です（先頭・末尾・連続した区切り線は自動で削られます）。`ctx` は `context-menu` イベントの `detail`（`type`, `node`, `item`, `edge`, `port`, ワールド座標の `x` / `y`, `screen`, `client`, `selection`）に `el` / `editor` / `graph` / `defaultItems` を足したものです。
+
+メニュー自体をアプリ側で描きたい場合は、`context-menu` イベントで `preventDefault()` すると内蔵メニューが出なくなります。
+
+```js
+el.addEventListener('context-menu', (e) => {
+  e.preventDefault();                       // 内蔵メニューを出さない
+  myMenu.open(e.detail.client.x, e.detail.client.y, e.detail);
+});
+```
+
+キーボードは ↑ ↓ で移動、Enter で実行、Escape で閉じます。メニューの外をクリックするか、ズーム・パンしても閉じます。項目を実行すると `context-menu-select`（`{ id, item, target }`）が発火します。見た目は `part="context-menu"` で上書きできます。
 
 #### 選択範囲内のコネクタだけを削除
 
@@ -540,6 +596,8 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
 | Ctrl/Cmd + D | 複製（範囲内のコネクタも複製） |
 | Ctrl/Cmd + C / V | コピー / 貼り付け（カーソル位置） |
 | Ctrl/Cmd + A | 全選択 |
+| Ctrl/Cmd + Shift + A / ツールバー「強調を選択」 | 強調表示されている要素をまとめて選択（`selectFocused`） |
+| 右クリック | 対象に応じたメニューを表示（↑ ↓ で移動、Enter で実行、Escape で閉じる） |
 | Ctrl/Cmd + Z / Ctrl/Cmd + Shift + Z（または Ctrl/Cmd + Y） | Undo / Redo |
 | Ctrl/Cmd + 0 / + / − | 縮尺リセット / 拡大 / 縮小 |
 | N（デモのみ） | マウス位置にノードを追加（`addNodeAtPointer` の例） |
@@ -707,6 +765,27 @@ el.editor.edgeRenderer = (ctx, edge, geom, api) => { /* 同様 */ };
 ```
 
 `api` には `selected`, `hover`, `style`, `lod`, `zoom`, `theme`, `graph`, `roundRect()`, `fitText()` が入っています。
+
+### 追加描画（オーバーレイ）
+
+`overlayRenderer` はノードとコネクタを描いたあとに 1 回だけ呼ばれます。ノードの上に重ねたいもの（分析用のバーやバッジ、注釈）はここで描きます。既定描画を置き換える `nodeRenderer` と違い、簡易表示（LOD）の一括描画も維持されます。
+
+```js
+el.editor.overlayRenderer = (ctx, api) => {
+  if (api.lod) return;                              // 縮小時は出さない
+  for (const node of api.nodes) {                   // 表示範囲内のノードだけ渡される
+    const r = api.graph.nodeRect(node);
+    ctx.fillStyle = '#3b82f6';
+    api.roundRect(r.x + 8, r.y + r.h - 6, (r.w - 16) * 0.42, 4, 2);  // 例: 下端に割合バー
+    ctx.fill();
+  }
+};
+el.editor.overlayRenderer = null;                   // 解除
+```
+
+ワールド座標系のまま呼ばれるので、画面上で一定の大きさにしたいものは `api.zoom` で割ります。`api` は `{ visible, lod, zoom, nodes, edges, theme, graph, roundRect(), fitText() }` です。
+
+計測値をノードに重ねる例として、シナリオ分析ビューの試作を [`demo/analytics.html`](demo/analytics.html)（`npm run dev` で `/demo/analytics.html`）に置いています。項目行の下端に選択率のバー、ヘッダに離脱率のバー、ノードのヒートマップ、コネクタの太さ＝遷移数、ホバーで詳細を出す HTML の吹き出し、という構成です。
 
 ## パフォーマンスの仕組み
 

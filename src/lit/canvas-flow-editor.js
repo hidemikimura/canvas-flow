@@ -1,5 +1,8 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { NodeEditor } from '../core/editor.js';
+import { defaultContextMenuItems } from './context-menu.js';
+
+export { defaultContextMenuItems } from './context-menu.js';
 
 /**
  * `<canvas-flow-editor>` — NodeEditor を包む Lit Web Component。
@@ -21,12 +24,18 @@ import { NodeEditor } from '../core/editor.js';
  *  - move-snap   number                       ノードの移動単位（px）。0 で無効（既定）
  *  - edge-type   bezier | straight | step     コネクタの描画方法（既定 bezier）。コネクタ単位は edge.type
  *  - focus-mode  off | connected | neighbors   選択ノードと繋がっている要素を強調し他を薄くする（既定 off）
+ *  - context-menu "false" で無効             右クリックメニュー（既定 有効。read-only では出さない）
+ *
+ * 右クリックメニューの項目は `contextMenuItems`（配列 or (ctx) => 配列）で差し替え・追加できる。
+ * `ctx` には `context-menu` イベントの detail に加えて `el` / `editor` / `graph` / `defaultItems` が入る。
  *
  * イベント（CustomEvent, detail に内容）:
  *  selection-change, viewport-change, graph-change, node-add, node-remove, node-change,
  *  nodes-move, nodes-move-end, node-resize-end, edge-add, edge-remove, edge-change,
  *  history-change, import, export, import-error, connect-rejected, layout,
- *  node-click, item-click, edge-click, canvas-click, canvas-dblclick, ready
+ *  edge-type-change, focus-change, focus-select, edges-delete, insert,
+ *  node-click, item-click, edge-click, canvas-click, canvas-dblclick, ready,
+ *  context-menu（preventDefault で内蔵メニューを抑止できる）, context-menu-select
  *
  * メソッド: `editor` で NodeEditor を直接操作できるほか、よく使うものは委譲している。
  */
@@ -49,7 +58,10 @@ export class CanvasFlowEditor extends LitElement {
     edgeType: { attribute: 'edge-type' },
     focusMode: { attribute: 'focus-mode' },
     exportFilename: { attribute: 'export-filename' },
+    contextMenu: { attribute: 'context-menu', converter: (v) => v !== 'false' && v !== '0' },
+    contextMenuItems: { attribute: false },
     _dropping: { state: true },
+    _menu: { state: true },
     minimapWidth: { attribute: 'minimap-width', type: Number },
     minimapHeight: { attribute: 'minimap-height', type: Number },
     _editing: { state: true },
@@ -154,6 +166,56 @@ export class CanvasFlowEditor extends LitElement {
       pointer-events: none;
       z-index: 3;
     }
+    .context-menu {
+      position: absolute;
+      z-index: 6;
+      min-width: 180px;
+      max-width: 280px;
+      padding: 4px;
+      background: #fff;
+      border: 1px solid var(--cfe-panel-border);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      outline: none;
+      user-select: none;
+    }
+    .context-menu button {
+      appearance: none;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 5px 8px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .context-menu button:hover:not(:disabled),
+    .context-menu button.active:not(:disabled) {
+      background: rgba(59, 130, 246, 0.12);
+    }
+    .context-menu button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .context-menu button.danger:not(:disabled) {
+      color: #b91c1c;
+    }
+    .context-menu button .shortcut {
+      color: #94a3b8;
+      font-size: 11px;
+    }
+    .context-menu .menu-sep {
+      height: 1px;
+      margin: 4px 2px;
+      background: #eef1f5;
+    }
     .inline-editor {
       position: absolute;
       box-sizing: border-box;
@@ -183,6 +245,15 @@ export class CanvasFlowEditor extends LitElement {
     this.edgeType = 'bezier';
     this.focusMode = 'off';
     this.exportFilename = 'canvas-flow.json';
+    this.contextMenu = true;
+    /** @type {Array<object>|((ctx:object)=>Array<object>)|null} */
+    this.contextMenuItems = null;
+    this._menu = null;
+    this._onMenuKey = this._onMenuKey.bind(this);
+    this._onDocPointerDownForMenu = (e) => {
+      const path = e.composedPath ? e.composedPath() : [e.target];
+      if (!path.some((n) => n instanceof HTMLElement && n.classList?.contains('context-menu'))) this.closeContextMenu();
+    };
     this._dropping = false;
     this.minimapWidth = 200;
     this.minimapHeight = 140;
@@ -243,6 +314,7 @@ export class CanvasFlowEditor extends LitElement {
     relay('insert', 'insert');
     relay('edge-type:change', 'edge-type-change');
     relay('focus:change', 'focus-change');
+    relay('focus:select', 'focus-select');
     relay('node:click', 'node-click');
     relay('item:click', 'item-click');
     relay('edge:click', 'edge-click');
@@ -269,7 +341,13 @@ export class CanvasFlowEditor extends LitElement {
         this._startEdit({ kind: 'title', nodeId: node.id, value: node.title ?? '', screenRect });
       }
     });
-    ed.on('viewport:change', () => this._cancelEdit());
+    ed.on('viewport:change', () => {
+      this._cancelEdit();
+      this.closeContextMenu();
+    });
+
+    // 右クリックメニュー
+    ed.on('context:menu', (detail) => this._openContextMenu(detail));
 
     this._ro = new ResizeObserver(() => this._syncSize());
     this._ro.observe(this);
@@ -283,6 +361,7 @@ export class CanvasFlowEditor extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this.closeContextMenu();
     this._ro?.disconnect();
     this.editor?.destroy();
     this.editor = null;
@@ -298,8 +377,10 @@ export class CanvasFlowEditor extends LitElement {
   }
 
   updated(changed) {
+    if (changed.has('_menu')) this._placeContextMenu();
     const ed = this.editor;
     if (!ed) return;
+    if (changed.has('readOnly') && this.readOnly) this.closeContextMenu();
     if (changed.has('data') && this.data && this.data !== this._loadedData) {
       this._loadedData = this.data;
       ed.load(this.data);
@@ -335,6 +416,101 @@ export class CanvasFlowEditor extends LitElement {
     if (r.width === 0 || r.height === 0) return;
     ed.resize(r.width, r.height);
     if (this.minimap) ed.resizeMinimap(this.minimapWidth, this.minimapHeight);
+  }
+
+  /* ---------- 右クリックメニュー ---------- */
+
+  _openContextMenu(detail) {
+    // アプリ側で preventDefault したら内蔵メニューは出さない（独自メニューを出したいとき）
+    const allowed = this._dispatch('context-menu', detail, true);
+    if (!allowed || !this.contextMenu || this.readOnly || !this.editor) return;
+    const ctx = { ...detail, el: this, editor: this.editor, graph: this.editor.graph };
+    ctx.defaultItems = defaultContextMenuItems(ctx);
+    const source = typeof this.contextMenuItems === 'function' ? this.contextMenuItems(ctx) : (this.contextMenuItems ?? ctx.defaultItems);
+    const items = (source ?? []).filter((it) => it && !it.hidden);
+    // 区切り線だけ・先頭末尾の区切り線を整理する
+    const cleaned = items.filter((it, i) => {
+      if (it.type !== 'separator') return true;
+      const prev = items.slice(0, i).findLast((x) => x.type !== 'separator');
+      const next = items.slice(i + 1).find((x) => x.type !== 'separator');
+      return !!prev && !!next && items[i - 1]?.type !== 'separator';
+    });
+    if (!cleaned.some((it) => it.type !== 'separator')) return;
+    this._menu = { items: cleaned, x: detail.screen.x, y: detail.screen.y, ctx, index: -1, placed: false };
+    document.addEventListener('pointerdown', this._onDocPointerDownForMenu, true);
+  }
+
+  /** 右クリックメニューを閉じる */
+  closeContextMenu() {
+    if (!this._menu) return;
+    this._menu = null;
+    document.removeEventListener('pointerdown', this._onDocPointerDownForMenu, true);
+  }
+
+  /** 右クリックメニューを任意の位置に出す（ワールド座標ではなく要素内の px） */
+  openContextMenuAt(x, y, detail = {}) {
+    this._openContextMenu({
+      type: 'none',
+      node: null,
+      item: null,
+      edge: null,
+      port: null,
+      x: this.editor?.viewport.toWorld(x, y).x ?? 0,
+      y: this.editor?.viewport.toWorld(x, y).y ?? 0,
+      screen: { x, y },
+      client: { x, y },
+      selection: { nodes: [...(this.editor?.selection.nodes ?? [])], edges: [...(this.editor?.selection.edges ?? [])] },
+      ...detail,
+    });
+  }
+
+  _runMenuItem(item) {
+    if (!item || item.type === 'separator' || item.disabled) return;
+    const ctx = this._menu?.ctx;
+    this.closeContextMenu();
+    try {
+      item.run?.(ctx);
+    } finally {
+      this._dispatch('context-menu-select', { id: item.id ?? null, item, target: ctx ?? null });
+    }
+  }
+
+  _onMenuKey(e) {
+    const menu = this._menu;
+    if (!menu) return;
+    const usable = menu.items.map((it, i) => ({ it, i })).filter(({ it }) => it.type !== 'separator' && !it.disabled);
+    if (!usable.length) return;
+    const at = usable.findIndex(({ i }) => i === menu.index);
+    if (e.key === 'Escape') {
+      this.closeContextMenu();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const next = e.key === 'ArrowDown' ? (at + 1) % usable.length : (at <= 0 ? usable.length - 1 : at - 1);
+      this._menu = { ...menu, index: usable[next].i };
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      if (at >= 0) this._runMenuItem(menu.items[menu.index]);
+    } else if (e.key === 'Home' || e.key === 'End') {
+      this._menu = { ...menu, index: usable[e.key === 'Home' ? 0 : usable.length - 1].i };
+    } else {
+      return;
+    }
+    // Escape などがエディタ本体のキー処理に流れないように止める
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  /** 画面外に出ないように位置を補正し、キーボード操作のためフォーカスする */
+  _placeContextMenu() {
+    const menu = this._menu;
+    const node = this.renderRoot?.querySelector?.('.context-menu');
+    if (!menu || !node || menu.placed) return;
+    const host = this.getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    let x = menu.x;
+    let y = menu.y;
+    if (x + box.width > host.width - 4) x = Math.max(4, x - box.width);
+    if (y + box.height > host.height - 4) y = Math.max(4, y - box.height);
+    this._menu = { ...menu, x, y, placed: true };
+    node.focus({ preventScroll: true });
   }
 
   _dispatch(name, detail, cancelable = false) {
@@ -508,6 +684,10 @@ export class CanvasFlowEditor extends LitElement {
   selectConnected(options) {
     return this.editor?.selectConnected(options) ?? null;
   }
+  /** 強調表示されている要素をそのまま選択する（強調表示が off なら設定どおりに辿って選択） */
+  selectFocused(options) {
+    return this.editor?.selectFocused(options) ?? null;
+  }
   deleteSelectedEdges(options) {
     return this.editor?.deleteSelectedEdges(options) ?? [];
   }
@@ -626,10 +806,43 @@ export class CanvasFlowEditor extends LitElement {
 
   /* ---------- render ---------- */
 
+  _renderContextMenu() {
+    const menu = this._menu;
+    return html`<div
+      class="context-menu"
+      part="context-menu"
+      role="menu"
+      tabindex="-1"
+      style="left:${Math.round(menu.x)}px; top:${Math.round(menu.y)}px; opacity:${menu.placed ? '1' : '0'}; pointer-events:${
+        menu.placed ? 'auto' : 'none'
+      }"
+      @keydown=${this._onMenuKey}
+      @contextmenu=${(e) => e.preventDefault()}
+      @pointerdown=${(e) => e.stopPropagation()}
+    >
+      ${menu.items.map((item, i) =>
+        item.type === 'separator'
+          ? html`<div class="menu-sep" role="separator"></div>`
+          : html`<button
+              role="menuitem"
+              class=${[item.danger ? 'danger' : '', menu.index === i ? 'active' : ''].filter(Boolean).join(' ')}
+              ?disabled=${!!item.disabled}
+              title=${item.title ?? nothing}
+              @click=${() => this._runMenuItem(item)}
+              @pointerenter=${() => (this._menu = { ...this._menu, index: i })}
+            >
+              <span>${item.label}</span>
+              ${item.shortcut ? html`<span class="shortcut">${item.shortcut}</span>` : nothing}
+            </button>`,
+      )}
+    </div>`;
+  }
+
   render() {
     const z = Math.round(this._zoom * 100);
     const hasSel = this.editor ? this.editor.selection.nodes.size + this.editor.selection.edges.size > 0 : false;
     const hasSelEdges = this.editor ? this.editor.selectedEdgeIds().length > 0 : false;
+    const hasSelNodes = this.editor ? this.editor.selection.nodes.size > 0 : false;
     return html`
       <div class="stage" @dragover=${this._onDragOver} @dragleave=${this._onDragLeave} @drop=${this._onDrop}>
         <canvas class="main" tabindex="0" aria-label="node editor"></canvas>
@@ -653,6 +866,13 @@ export class CanvasFlowEditor extends LitElement {
               <button title="拡大 (Ctrl++)" @click=${() => this.zoomIn()}>+</button>
               <button title="縮尺リセット (Ctrl+0)" @click=${() => this.resetZoom()}>1:1</button>
               <button title="全体表示" @click=${() => this.fitView()}>⛶</button>
+              <button
+                title="強調表示されている要素をまとめて選択 (Ctrl+Shift+A)"
+                ?disabled=${!hasSelNodes}
+                @click=${() => this.selectFocused()}
+              >
+                強調を選択
+              </button>
               ${this.readOnly
                 ? nothing
                 : html`<span class="sep"></span>
@@ -669,6 +889,7 @@ export class CanvasFlowEditor extends LitElement {
               <slot name="toolbar"></slot>
             </div>`
           : nothing}
+        ${this._menu ? this._renderContextMenu() : nothing}
         ${this._editing
           ? html`<input
               class="inline-editor"
