@@ -199,6 +199,7 @@
       </p>
       <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
       <p>「強調」を選んでからノードをクリックすると、そのノードを通る道筋（祖先と子孫）だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
+      <p>ノードの外に出ている色付きのバッジは <code>note</code>（メモ）です。ノードの大きさは変えずに、他のノードやバッジと重ならない位置へ自動で置かれます。マウスを乗せると全文が出て、ダブルクリックで編集、右クリックメニューからも追加・削除できます。</p>
     </div>
   </div>
 </footer>
@@ -249,6 +250,9 @@
     note: { style: { headerFill: '#3b2a10', fill: '#221c10', stroke: '#8a6420' } },
   };
 
+  const NOTE_COLORS = ['amber', 'blue', 'red', 'green', 'purple'];
+  const NOTE_TEXTS = ['要確認', '仕様が未定', '文言を直す', 'レビュー済み', '長いメモはバッジでは 1 行に省略され、マウスを乗せると全文が出る'];
+
   /** グリッド状に n 個のノードと、隣接ノード間のコネクタを作る */
   function generate(n) {
     const cols = Math.ceil(Math.sqrt(n));
@@ -296,10 +300,24 @@
         edges.push({ id: `e${i}a`, source: `n${i - 1}`, sourcePort: 'item:p0:out', target: `n${i}`, targetPort: 'item:p0:in' });
       }
       if (row > 0 && i % 3 === 0 && cluster(i) === cluster(i - cols)) {
-        edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+        edges.push({
+          id: `e${i}b`,
+          source: `n${i - cols}`,
+          sourcePort: 'out',
+          target: `n${i}`,
+          targetPort: 'in',
+          ...(i % 9 === 0 ? { note: { text: 'この経路は暫定', color: 'amber' } } : null),
+        });
       }
       // 7 個ごとに 1 つ、コネクタを使わない ID 指定の遷移（goto）。選択・強調時だけ点線で出る
       if (i % 7 === 3 && i + 2 < n) items[0].goto = { to: `n${i + 2}`, label: 'goto' };
+      // 5 個ごとに 1 つメモ（note）。ノードの外にバッジで出て、他のノードと重ならない位置に置かれる
+      if (i % 5 === 1) {
+        nodes[nodes.length - 1].note = {
+          text: NOTE_TEXTS[((i / 5) | 0) % NOTE_TEXTS.length],
+          color: NOTE_COLORS[i % NOTE_COLORS.length],
+        };
+      }
     }
     return { nodes, edges };
   }

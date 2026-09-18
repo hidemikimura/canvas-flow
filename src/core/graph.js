@@ -88,6 +88,30 @@ export function normalizeGoto(value) {
   return out;
 }
 
+/**
+ * メモ（note）の値を `{text, color?}` に正規化する。
+ * 受け付ける形: `'要確認'` / `{text:'要確認', color:'amber'}`。
+ * 空文字・不正な値は null（メモなし）。
+ */
+/** 2 つの矩形が重なっているか */
+export function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+export function normalizeNote(value) {
+  if (value == null || value === false) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? { text } : null;
+  }
+  if (typeof value === 'object' && typeof value.text === 'string') {
+    const text = value.text.trim();
+    if (!text) return null;
+    return value.color ? { text, color: String(value.color) } : { text };
+  }
+  return null;
+}
+
 /** PortSpec に visible を設定した新しい値を返す（true / 数値はオブジェクトに変換） */
 export function withPortVisible(spec, visible) {
   if (spec == null || spec === false) return spec;
@@ -1218,6 +1242,136 @@ export class Graph extends Emitter {
   /** ノードの内容が変わったら逆引きを作り直す（移動だけのときは呼ばない） */
   _invalidateGoto() {
     this._gotoIndex = null;
+  }
+
+  /* ---------- メモ（note） ---------- */
+
+  /**
+   * ノード・コネクタのメモを取得する。
+   * @param {object|string} target ノード / コネクタ、またはその id（ノードを先に探す）
+   * @returns {{text:string, color?:string}|null}
+   */
+  noteOf(target) {
+    const found = this._resolveNoteTarget(target);
+    return found ? normalizeNote(found.obj.note) : null;
+  }
+
+  /**
+   * メモを設定する（Undo 可）。`null` / 空文字で削除。
+   * @param {object|string} target ノード / コネクタ、またはその id
+   * @param {string|{text:string,color?:string}|null} value
+   */
+  setNote(target, value) {
+    const found = this._resolveNoteTarget(target);
+    if (!found) return null;
+    const note = normalizeNote(value);
+    const next = note ?? undefined;
+    return found.kind === 'node'
+      ? this.updateNode(found.obj.id, { note: next })
+      : this.updateEdge(found.obj.id, { note: next });
+  }
+
+  /** メモが付いているものを一覧にする */
+  notes() {
+    const out = [];
+    for (const node of this.nodes.values()) {
+      const note = normalizeNote(node.note);
+      if (note) out.push({ kind: 'node', id: node.id, note });
+    }
+    for (const edge of this.edges.values()) {
+      const note = normalizeNote(edge.note);
+      if (note) out.push({ kind: 'edge', id: edge.id, note });
+    }
+    return out;
+  }
+
+  _resolveNoteTarget(target) {
+    if (!target) return null;
+    if (typeof target === 'object') {
+      if (target.source != null && target.target != null) {
+        const edge = this.edges.get(target.id);
+        return edge ? { kind: 'edge', obj: edge } : null;
+      }
+      const node = this.nodes.get(target.id);
+      return node ? { kind: 'node', obj: node } : null;
+    }
+    const node = this.nodes.get(target);
+    if (node) return { kind: 'node', obj: node };
+    const edge = this.edges.get(target);
+    return edge ? { kind: 'edge', obj: edge } : null;
+  }
+
+  /* ---------- 小さな矩形の配置（バッジ・メモ用） ---------- */
+
+  /**
+   * バッジのような小さな矩形を、ノードや既に置いた矩形と重ならない位置に置く。
+   * 候補を順に試して最初に空いていた場所を返す。全部ふさがっていたら最後の候補。
+   * @param {{x:number,y:number,w:number,h:number}} anchor 基準の矩形（ノードの矩形など）
+   * @param {{w:number,h:number}} size 置きたい矩形の大きさ
+   * @param {object} [options]
+   * @param {string[]} [options.placements] 試す順番。'top-right' | 'top-left' | 'bottom-right' |
+   *   'bottom-left' | 'top' | 'bottom' | 'left' | 'right' | 'inside-top-right' | 'center'
+   * @param {Array<{x,y,w,h}>} [options.avoid=[]] 既に置いた矩形（これとも重ねない）
+   * @param {Iterable<string>} [options.ignore] 判定から除くノード id（普通は自分自身）
+   * @param {number} [options.gap=4] ノードとの隙間
+   * @param {number} [options.overlap=0.35] 角に置くときに基準矩形へ重ねる割合（0 で外側）
+   * @returns {{x:number,y:number,w:number,h:number,placement:string,free:boolean}}
+   */
+  placeNear(anchor, size, options = {}) {
+    const {
+      placements = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'top', 'bottom', 'inside-top-right'],
+      avoid = [],
+      ignore,
+      gap = 4,
+      overlap = 0.35,
+    } = options;
+    const ignoreSet = ignore ? new Set(ignore) : null;
+    const { w, h } = size;
+    const cx = anchor.x + anchor.w / 2;
+    const rects = [];
+    for (const placement of placements) {
+      const p = this._placementRect(placement, anchor, w, h, gap, overlap);
+      if (!p) continue;
+      const rect = { x: p.x, y: p.y, w, h, placement };
+      rects.push(rect);
+      const hitsNode = this.nodesInRect(rect).some(
+        (n) => n && !(ignoreSet && ignoreSet.has(n.id)) && rectsOverlap(rect, this.nodeRect(n)),
+      );
+      if (hitsNode) continue;
+      if (avoid.some((r) => rectsOverlap(rect, r))) continue;
+      return { ...rect, free: true };
+    }
+    void cx;
+    return { ...(rects[rects.length - 1] ?? { x: anchor.x, y: anchor.y, w, h, placement: 'center' }), free: false };
+  }
+
+  _placementRect(placement, a, w, h, gap, overlap) {
+    const inX = w * overlap;
+    const inY = h * (1 - overlap);
+    switch (placement) {
+      case 'top-right':
+        return { x: a.x + a.w - inX, y: a.y - inY };
+      case 'top-left':
+        return { x: a.x - w + inX, y: a.y - inY };
+      case 'bottom-right':
+        return { x: a.x + a.w - inX, y: a.y + a.h - h + inY };
+      case 'bottom-left':
+        return { x: a.x - w + inX, y: a.y + a.h - h + inY };
+      case 'top':
+        return { x: a.x + a.w / 2 - w / 2, y: a.y - h - gap };
+      case 'bottom':
+        return { x: a.x + a.w / 2 - w / 2, y: a.y + a.h + gap };
+      case 'left':
+        return { x: a.x - w - gap, y: a.y + a.h / 2 - h / 2 };
+      case 'right':
+        return { x: a.x + a.w + gap, y: a.y + a.h / 2 - h / 2 };
+      case 'inside-top-right':
+        return { x: a.x + a.w - w - gap, y: a.y + gap };
+      case 'center':
+        return { x: a.x + a.w / 2 - w / 2, y: a.y + a.h / 2 - h / 2 };
+      default:
+        return null;
+    }
   }
 
   edgesOf(nodeId) {

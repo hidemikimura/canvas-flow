@@ -11,6 +11,9 @@ const nodeTypes = {
   note: { style: { headerFill: '#fef3c7', fill: '#fffbeb', stroke: '#fcd34d' } },
 };
 
+const NOTE_COLORS = ['amber', 'blue', 'red', 'green', 'purple'];
+const NOTE_TEXTS = ['要確認', '仕様が未定', 'ここで離脱が多い', '文言を直す', 'A/B テスト中の分岐。長いメモはバッジでは省略され、マウスを乗せると全文が出る'];
+
 /** グリッド状に n 個のノードと、隣接ノード間のコネクタを生成 */
 function generate(n) {
   const cols = Math.ceil(Math.sqrt(n));
@@ -70,6 +73,10 @@ function generate(n) {
       output: type === 'note' ? { max: 3, visible: false } : { max: 3 },
       items,
       ...(childs ? { childs } : null),
+      // 5 個ごとに 1 つメモを付ける。ノードの外にバッジで出て、他のノードと重ならない位置に置かれる
+      ...(i % 5 === 1
+        ? { note: { text: NOTE_TEXTS[(i / 5 | 0) % NOTE_TEXTS.length], color: NOTE_COLORS[i % NOTE_COLORS.length] } }
+        : null),
     });
     // 7 個ごとに 1 つ、コネクタを使わない ID 指定の遷移（goto）を持たせる。
     // 選択・強調したときだけ点線の矢印で描かれる
@@ -93,7 +100,15 @@ function generate(n) {
     }
     // 上と接続（ヘッダポート同士）
     if (row > 0 && i % 3 === 0 && cluster(i) === cluster(i - cols)) {
-      edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+      edges.push({
+        id: `e${i}b`,
+        source: `n${i - cols}`,
+        sourcePort: 'out',
+        target: `n${i}`,
+        targetPort: 'in',
+        // コネクタにもメモを付けられる（中点の近くにバッジが出る）
+        ...(i % 9 === 0 ? { note: { text: 'この経路は暫定', color: 'amber' } } : null),
+      });
     }
   }
   return { nodes, edges };

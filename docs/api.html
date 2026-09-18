@@ -123,6 +123,7 @@
     <li><a href="#m-edit">編集コマンド</a></li>
     <li><a href="#m-add">ノード追加</a></li>
     <li><a href="#m-childs">子ノード</a></li>
+    <li><a href="#m-note">メモ（note）</a></li>
     <li><a href="#m-goto">goto（ID 指定の遷移）</a></li>
     <li><a href="#m-context">右クリックメニュー</a></li>
     <li><a href="#m-layout">自動整列</a></li>
@@ -519,6 +520,52 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
 <p>子ノードの配列（表示順）と、一番外側の親（自分が子でなければ自分自身）。引数はノードでも ID でも渡せます。さらに細かい問い合わせは <a href="#graph">Graph</a> 側の <code>isChild</code> / <code>parentOf</code> / <code>rootOf</code> / <code>depthOf</code> / <code>descendantIds</code> / <code>rootNodes</code> を使います。</p>
 </section>
 
+<h2 id="m-note">メモ（note）</h2>
+<section class="api" data-name="note memo メモ バッジ setNote noteOf notes placeNear noteAt editNote 付箋 ラベル">
+<p>ノードとコネクタに短いメモを付けられます。ノードの外側（既定は右上）に色分けしたバッジで出るので、ノードの大きさは変わりません。置き場所は <code>placeNear()</code> が他のノードや他のバッジと重ならない位置を選びます。</p>
+<pre><code>graph.addNode({ id: 'n1', title: 'メニュー', x: 0, y: 0, note: '要確認' });
+graph.addEdge({ id: 'e1', source: 'n1', sourcePort: 'out', target: 'n2', targetPort: 'in',
+                note: { text: 'この経路は暫定', color: 'amber' } });
+editor.setNote('n1', { text: '仕様が未定', color: 'red' });  // 設定（Undo 可）
+editor.setNote('n1', null);                                  // 削除
+editor.noteOf('n1');                                         // → { text, color? } | null
+editor.notes();                                              // → [{ kind, id, note }, ...]</code></pre>
+<table>
+  <tr><th>項目</th><th>ふるまい</th></tr>
+  <tr><td>配置</td><td>ノードは 右上 → 左上 → 右下 → 左下 → 上 → 下 → ノード内右上 の順、コネクタは中点の 上 → 下 → 右 → 左 の順に試し、最初に空いている場所に置く。バッジ同士も重ならない</td></tr>
+  <tr><td>大きさ</td><td>画面上では拡大率に関わらず一定。長いメモは 1 行に省略（<code>…</code>）し、ホバーで全文を吹き出し表示（<code>theme.note.maxWidth</code>）</td></tr>
+  <tr><td>縮小時</td><td>簡易表示（LOD）では文字をやめて色の丸だけ（<code>theme.note.dot</code>）</td></tr>
+  <tr><td>操作</td><td>バッジのダブルクリックで編集、右クリックメニューに「メモを追加 / 編集 / 削除」。バッジのクリックは下のノード・コネクタの選択として扱う</td></tr>
+  <tr><td>色</td><td><code>theme.note.colors</code> のキー（gray / blue / amber / red / green / purple）か CSS の色。キーはテーマで追加できる</td></tr>
+  <tr><td>JSON</td><td>そのまま保存・復元</td></tr>
+</table>
+<h3><span class="tag type">type</span><code>NoteSpec</code></h3>
+<p><code>'要確認'</code> または <code>{ text: string, color?: string }</code>。<code>normalizeNote(value)</code> で <code>{text, color?}</code> に正規化できます（空文字・不正な値は <code>null</code>）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setNote(target, value)</code> / <code>noteOf(target)</code> / <code>notes()</code></h3>
+<p><code>target</code> はノード・コネクタ、またはその id（ノードを先に探します）。<code>value</code> に <code>null</code> や空文字を渡すと削除します。<code>readOnly</code> のとき <code>editor.setNote()</code> は <code>null</code> を返して何もしません。</p>
+<h3><span class="tag method">method</span><code>noteAt(wx, wy) → NoteBox | null</code> / <code>noteBoxes() → NoteBox[]</code></h3>
+<p>直前の描画で置いたバッジの位置で当たり判定をします。<code>NoteBox</code> は <code>{ kind: 'node' | 'edge', id, note, rect, placement }</code>。<code>hitTest()</code> がバッジに当たったときは、下のノード／コネクタの結果に <code>note</code> が添えられます。</p>
+<h3><span class="tag method">method</span><code>placeNear(anchor, size, options?) → Rect &amp; { placement, free }</code></h3>
+<p>バッジのような小さな矩形を、ノードや既に置いた矩形と重ならない位置に置きます。メモの配置に使っているものをそのまま公開しているので、<a href="#m-appearance">overlayRenderer</a> で独自のバッジを出すときにも使えます。</p>
+<table>
+  <tr><th>オプション</th><th>意味</th></tr>
+  <tr><td><code>placements</code></td><td>試す順番。<code>'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top' | 'bottom' | 'left' | 'right' | 'inside-top-right' | 'center'</code></td></tr>
+  <tr><td><code>avoid</code></td><td>すでに置いた矩形（これとも重ねない）</td></tr>
+  <tr><td><code>ignore</code></td><td>判定から除くノード id（普通は自分自身）</td></tr>
+  <tr><td><code>gap</code> / <code>overlap</code></td><td>ノードとの隙間 / 角に置くとき基準矩形へ重ねる割合（0 で外側）</td></tr>
+</table>
+<pre><code>editor.overlayRenderer = (ctx, api) =&gt; {
+  const placed = [];
+  for (const node of api.nodes) {
+    const box = api.graph.placeNear(api.graph.nodeRect(node), { w: 80 / api.zoom, h: 18 / api.zoom },
+      { avoid: placed, ignore: [node.id] });
+    placed.push(box);
+    // box.x / box.y に描く（box.free が false なら空き場所が無かった）
+  }
+};</code></pre>
+<div class="note">Lit 版では属性 <code>notes="false"</code> でバッジを描かなくできます（データは残ります）。メモの一覧は属性名と衝突するため <code>el.notesList()</code>、編集開始は <code>el.editNote(target)</code> です。</div>
+</section>
+
 <h2 id="m-goto">goto（ID 指定の遷移）</h2>
 <section class="api" data-name="goto gotoLinks gotoSources gotoTargets setGoto gotoAnchor 遷移 ノードID 指定 点線 シナリオ">
 <p>「この選択肢を選んだらこのノードへ」という遷移を、コネクタを引かずにノード ID で指定できます。ノードにも項目にも <code>goto</code> を書けて、コネクタと混ぜて使えます。</p>
@@ -722,6 +769,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>focus:select</code></td><td><code>focus-select</code></td><td><code>{ mode, nodes: string[], edges: string[] }</code></td><td>強調表示されている要素を選択した（<code>selectFocused</code>）</td></tr>
   <tr><td><code>context:menu</code></td><td><code>context-menu</code></td><td><code>{ type, node, item, edge, port, x, y, screen, client, selection, originalEvent }</code></td><td>右クリック。Lit 側の <code>context-menu</code> は <code>preventDefault()</code> で内蔵メニューを抑止できる</td></tr>
   <tr><td>—</td><td><code>context-menu-select</code></td><td><code>{ id, item, target }</code></td><td>右クリックメニューの項目を実行した（Lit のみ）</td></tr>
+  <tr><td><code>note:hover</code></td><td><code>note-hover</code></td><td><code>{ kind, id, note, rect, screenRect }</code> または <code>{ note: null }</code></td><td><a href="#m-note">メモ</a>のバッジに乗った／外れた</td></tr>
+  <tr><td><code>note:edit</code></td><td><code>note-edit</code></td><td><code>{ kind, id, note, rect, screenRect }</code></td><td>メモのバッジをダブルクリックした（Lit 側は <code>preventDefault()</code> でインライン編集を止められる）</td></tr>
   <tr><td><code>edges:delete</code></td><td><code>edges-delete</code></td><td><code>{ ids: string[], scope }</code></td><td>選択範囲内のコネクタだけを削除した</td></tr>
   <tr><td><code>insert</code></td><td><code>insert</code></td><td><code>{ at, anchor, nodes, edges }</code></td><td><code>insertJSON</code> で JSON を指定位置に追加した</td></tr>
   <tr><td><code>render</code></td><td><code>render</code></td><td><code>{ nodes, edges, ms }</code></td><td>描画後の統計</td></tr>
@@ -761,6 +810,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>childs</code></td><td>Node[]?</td><td><a href="#m-childs">子ノード</a>。項目の下に縦に並ぶ。位置と幅は親が自動計算（子の <code>x</code> / <code>y</code> / <code>width</code> は無視される）。何段でも入れ子にできる</td></tr>
   <tr><td><code>parent</code></td><td>string?</td><td>子ノードにだけ入る親の ID（読み取り専用。変更は <code>setParent()</code>）</td></tr>
   <tr><td><code>goto</code></td><td><a href="#m-goto">GotoSpec</a>?</td><td>コネクタを使わない ID 指定の遷移先。<code>'n1'</code> / <code>['n1','n2']</code> / <code>{to:'n1', label:'戻る'}</code></td></tr>
+  <tr><td><code>note</code></td><td><a href="#m-note">NoteSpec</a>?</td><td>メモ。<code>'要確認'</code> / <code>{text:'要確認', color:'amber'}</code>。ノードの外側にバッジで出る</td></tr>
   <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> で全ポートの丸を非表示</td></tr>
   <tr><td><code>style</code></td><td>object?</td><td><code>theme.node.*</code> の上書き</td></tr>
   <tr><td><code>data</code></td><td>any?</td><td>任意データ（そのまま JSON に保存）</td></tr>
@@ -808,6 +858,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>style</code></td><td>object?</td><td><code>theme.edge.*</code> の上書き</td></tr>
   <tr><td><code>type</code></td><td><code>'bezier' | 'straight' | 'step'</code>?</td><td>描画方法。省略時は全体の既定（<code>theme.edge.type</code>）</td></tr>
   <tr><td><code>data</code></td><td>any?</td><td>任意データ</td></tr>
+  <tr><td><code>note</code></td><td><a href="#m-note">NoteSpec</a>?</td><td>メモ（中点の近くにバッジで出る）</td></tr>
 </table>
 <p>向きが逆（in → out）で渡された場合、<code>addEdge()</code> が正規化します。同一ノード間・同じポート組の重複・存在しないポート・上限超過は追加されず <code>null</code> を返します。</p>
 </section>
@@ -846,6 +897,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>updateEdge(id, patch)</code> / <code>removeEdge(id)</code> / <code>removeEdges(ids)</code></td><td>コネクタの更新・削除</td></tr>
   <tr><td><code>edgesOf(nodeId) → Edge[]</code></td><td>ノードに接続しているコネクタ</td></tr>
   <tr><td><code>connectedTo(startIds, { depth, direction, includeStart, links }) → { nodes: Set, edges: Set, links: Set }</code></td><td>起点から辿れるノード・コネクタ・<a href="#m-goto">goto</a>（強調表示・まとめ選択用）。<code>direction</code> は <code>'lineage' | 'downstream' | 'upstream' | 'both'</code>（この API の既定は <code>'both'</code>）。<code>links: false</code> で goto を辿らない</td></tr>
+  <tr><td><code>noteOf(target)</code> / <code>setNote(target, value)</code> / <code>notes()</code></td><td><a href="#m-note">メモ</a>の取得・設定（<code>null</code> で削除）・一覧。target はノード / コネクタ / その id</td></tr>
+  <tr><td><code>placeNear(anchor, size, { placements, avoid, ignore, gap, overlap })</code></td><td>バッジのような小さな矩形を、ノードや既に置いた矩形と重ならない位置に置く（<a href="#m-note">メモ</a>の配置に使っているものを公開）</td></tr>
   <tr><td><code>gotoLinks(node?)</code> / <code>gotoSources(node)</code> / <code>gotoTargets(node)</code> / <code>setGoto(node, value, { itemId })</code> / <code>gotoAnchor(link)</code></td><td><a href="#m-goto">goto</a> の一覧・逆引き・設定・点線の始点終点</td></tr>
   <tr><td><code>portSpec(nodeId, key)</code> / <code>portEdges(nodeId, key)</code> / <code>portCapacity(nodeId, key) → { count, max, full }</code></td><td>ポートの定義・接続・残量</td></tr>
   <tr><td><code>portVisible(nodeId, key)</code> / <code>setPortVisible(...)</code> / <code>setPortsVisible(...)</code></td><td>ポートの表示状態</td></tr>
@@ -879,6 +932,9 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
           curvature: 0.5,   // bezier の曲がり具合
           stepOffset: 24,   // step の水平突き出し量
           deleteIcon: { radius: 9, fill, stroke, color, hoverFill, hoverColor } },
+  note: { height: 18, maxWidth: 160, radius: 9, gap: 4, font, fill, color, stroke, strokeWidth: 1.5,
+          dot: 5,                                                       // 縮小時に出す丸の半径
+          colors: { gray, blue, amber, red, green, purple } },           // note.color のキー
   goto: { stroke: '#94a3b8', strokeWidth: 1.5, dash: [6, 4], arrow: 9,   // ID 指定の遷移の点線
           labelColor, labelFont, labelBg },
   focus: { dimOpacity: 0.12, dimOpacityLod: 0.25, edgeStroke: null, edgeWidth: null },
@@ -906,9 +962,10 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>move-snap</code></td><td>0</td><td>ノードの移動単位（px）</td></tr>
   <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
   <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
+  <tr><td><code>notes</code></td><td>有効</td><td><code>"false"</code> で<a href="#m-note">メモ</a>のバッジを描かない</td></tr>
   <tr><td><code>context-menu</code></td><td>有効</td><td><code>"false"</code> で内蔵の右クリックメニューを無効（<code>read-only</code> では出ない）。項目は <code>contextMenuItems</code> で差し替え</td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>setNote</code>, <code>noteOf</code>, <code>notesList</code>, <code>editNote</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -929,6 +986,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td>Ctrl/Cmd + A / C / V / D</td><td>全選択 / コピー / 貼り付け（カーソル位置）/ 複製</td></tr>
   <tr><td>Ctrl/Cmd + Shift + A</td><td>強調表示されている要素をまとめて選択（<code>selectFocused</code>。ツールバー「強調を選択」も同じ）</td></tr>
   <tr><td>右クリック</td><td>対象に応じたメニュー（↑ ↓ で移動、Enter で実行、Escape で閉じる）</td></tr>
+  <tr><td>メモのバッジをダブルクリック</td><td><a href="#m-note">メモ</a>を編集（ホバーで全文表示）</td></tr>
   <tr><td>Ctrl/Cmd + Z / Shift+Z / Y</td><td>Undo / Redo</td></tr>
   <tr><td>Ctrl/Cmd + 0 / + / −</td><td>縮尺リセット / 拡大 / 縮小</td></tr>
   <tr><td>矢印キー（Shift で 10 倍）</td><td>選択ノードを微移動（1px。<code>moveSnap</code> 設定時はその単位）</td></tr>

@@ -1,4 +1,4 @@
-import { edgeGeometryFor, geometryPoint, normalizeEdgeType } from './graph.js';
+import { edgeGeometryFor, geometryPoint, normalizeEdgeType, normalizeNote } from './graph.js';
 
 /**
  * Canvas 2D レンダラー。
@@ -31,6 +31,8 @@ export class Renderer {
     /** @type {(node:any)=>object} ノードのスタイル解決（種別スタイル + node.style） */
     this.resolveNodeStyle = (node) => (node.style ? { ...theme.node, ...node.style } : theme.node);
     this.resolveEdgeStyle = (edge) => (edge.style ? { ...theme.edge, ...edge.style } : theme.edge);
+    /** 直前の描画で置いたメモバッジの矩形（ヒットテスト・ホバー用） */
+    this.noteBoxes = [];
     this._textCache = new Map();
     this._portBatch = { plain: [], connected: [], full: [], hover: [] };
     this.stats = { nodes: 0, edges: 0, ms: 0 };
@@ -132,6 +134,9 @@ export class Renderer {
 
     // --- goto（ID 指定の遷移）の点線。選択・強調されているものだけ ---
     if (!lod) this._drawGotoLinks(state);
+
+    // --- メモのバッジ（ノードより手前） ---
+    this._drawNotes(state, nodes, edges, lod);
 
     // --- 追加描画（ノードより手前。分析表示やバッジなど） ---
     if (this.renderOverlay) {
@@ -350,6 +355,112 @@ export class Renderer {
   }
 
   /** コネクタ中央の × アイコン。画面上のサイズが一定になるよう zoom で割る */
+  /**
+   * ノード・コネクタに付いたメモをバッジで描く。
+   * 置き場所は `graph.placeNear()` で決めるので、ほかのノードや他のバッジと重ならない。
+   * 画面上の大きさは拡大率に関わらず一定。
+   */
+  _drawNotes(state, nodes, edges, lod) {
+    const { ctx, graph, viewport: vp, theme } = this;
+    const st = theme.note;
+    this.noteBoxes = [];
+    if (!st || state.notes === false) return;
+    const zoom = vp.zoom;
+    const color = (note) => (note.color && st.colors[note.color]) || note.color || st.fill;
+
+    if (lod) {
+      // 縮小時はテキストが読めないので色の丸だけ。色ごとに 1 パスへまとめて描く。
+      // 全体表示のように縮めすぎたときは点が散らばるだけなので描かない
+      if (zoom < (st.dotMinZoom ?? 0)) return;
+      const r = st.dot / zoom;
+      const byColor = new Map();
+      const push = (note, x, y) => {
+        const c = color(note);
+        const list = byColor.get(c);
+        if (list) list.push(x, y);
+        else byColor.set(c, [x, y]);
+      };
+      for (const node of nodes) {
+        const note = normalizeNote(node.note);
+        if (!note) continue;
+        const rect = graph.nodeRect(node);
+        push(note, rect.x + rect.w, rect.y);
+      }
+      for (const edge of edges) {
+        const note = normalizeNote(edge.note);
+        if (!note) continue;
+        const p = graph.edgePoint(edge, 0.5);
+        if (p) push(note, p.x, p.y);
+      }
+      for (const [c, xy] of byColor) {
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        for (let i = 0; i < xy.length; i += 2) {
+          ctx.moveTo(xy[i] + r, xy[i + 1]);
+          ctx.arc(xy[i], xy[i + 1], r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      return;
+    }
+
+    const H = st.height / zoom;
+    const padX = 7 / zoom;
+    const gap = st.gap / zoom;
+    const placed = [];
+
+    const draw = (kind, id, note, anchorRect, placements, ignore) => {
+      // 文字幅は等倍で測ってワールド単位に直す（省略記号も等倍で計算する）
+      const text = this._fit(note.text, st.maxWidth, st.font);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.font = st.font;
+      const textW = ctx.measureText(text).width;
+      ctx.restore();
+      const W = textW / zoom + padX * 2;
+      const box = graph.placeNear(anchorRect, { w: W, h: H }, { placements, avoid: placed, ignore, gap });
+      placed.push(box);
+      this.noteBoxes.push({ kind, id, note, rect: { x: box.x, y: box.y, w: box.w, h: box.h }, placement: box.placement });
+
+      const fill = color(note);
+      ctx.fillStyle = fill;
+      this._roundRect(box.x, box.y, box.w, box.h, Math.min(st.radius / zoom, box.h / 2));
+      ctx.fill();
+      if (st.stroke) {
+        ctx.strokeStyle = st.stroke;
+        ctx.lineWidth = st.strokeWidth / zoom;
+        this._roundRect(box.x, box.y, box.w, box.h, Math.min(st.radius / zoom, box.h / 2));
+        ctx.stroke();
+      }
+      ctx.save();
+      ctx.translate(box.x + box.w / 2, box.y + box.h / 2);
+      ctx.scale(1 / zoom, 1 / zoom);
+      ctx.font = st.font;
+      ctx.fillStyle = st.color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 0, 0.5);
+      ctx.restore();
+    };
+
+    for (const node of nodes) {
+      const note = normalizeNote(node.note);
+      if (!note) continue;
+      draw('node', node.id, note, graph.nodeRect(node), undefined, [node.id]);
+    }
+    for (const edge of edges) {
+      const note = normalizeNote(edge.note);
+      if (!note) continue;
+      const p = graph.edgePoint(edge, 0.5);
+      if (!p) continue;
+      // コネクタは中点を基準に、上 → 下 → 右 → 左の順で置く
+      draw('edge', edge.id, note, { x: p.x, y: p.y, w: 0, h: 0 }, ['top', 'bottom', 'right', 'left', 'center'], [
+        edge.source,
+        edge.target,
+      ]);
+    }
+  }
+
   /**
    * goto（コネクタを使わない ID 指定の遷移）を点線の矢印で描く。
    * 対象は「選択中のノードに出入りするリンク」と「強調表示で辿ったリンク」だけ。

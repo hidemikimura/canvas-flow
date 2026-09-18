@@ -12,6 +12,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - コネクタのホバー／選択時に中央へ削除アイコンを表示し、クリックで削除
 - 右クリックメニュー（対象ごとに項目を出し分け。項目の差し替え・追加や、独自メニューへの置き換えも可）
 - コネクタを使わない ID 指定の遷移（`goto`）。ノード・項目に遷移先ノード ID を書くだけで、強調表示・自動整列でもつながりとして扱われる
+- ノード・コネクタにメモ（`note`）を付けられる。ノードの外側に色分けしたバッジで出て、他のノードやバッジと重ならない位置に自動で置かれる
 - コネクタの描画方法を曲線（ベジェ）／直線／直角（階段状）から選べる。全体の既定とコネクタ単位の両方で指定可
 - 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）。強調されている要素はまとめて選択できる
 - ノードの中に子ノードを入れられる（`childs`）。何段でも入れ子にでき、位置と幅は親が自動計算する
@@ -155,6 +156,7 @@ npm run build        # dist/ にライブラリをビルド（ESM）
 | `edge-type` | `'bezier' \| 'straight' \| 'step'` | `'bezier'` | コネクタの描画方法の既定（曲線 / 直線 / 直角の階段状）。コネクタ単位は `edge.type` |
 | `focus-mode` | `'off' \| 'connected' \| 'neighbors'` | `'off'` | 選択ノードと同じ流れにある要素を強調し、他を薄く描く |
 | `context-menu` | boolean | `true` | 内蔵の右クリックメニュー（`"false"` で無効。`read-only` では出ない） |
+| `notes` | boolean | `true` | メモのバッジを描く（`"false"` で非表示） |
 
 コア `NodeEditor` のオプションにはさらに `historyLimit`（既定 200）、`minNodeWidth`（既定 100）、`keyboardScope`（キーボード操作を受け付ける範囲の要素）、`rules`（`{ maxInputs, maxOutputs, onFull }`）、`edgeDeleteIcon`（既定 true）、`wheelGestureGap`（既定 250ms。この間隔以内のホイールイベントは同じ操作として扱う）があります。
 
@@ -376,6 +378,48 @@ el.rootNodeOf('n2');                           // 一番外側の親（自分が
 el.theme = { node: { childIndent: 16, childGap: 10 } };   // editor.setTheme(...) でも同じ
 ```
 
+#### メモ（`note`）
+
+ノードとコネクタに短いメモを付けられます。ノードの外側（既定は右上）に色分けしたバッジで出るので、ノードの大きさは変わりません。置き場所は他のノードや他のバッジと重ならないように自動で選ばれます。
+
+```js
+el.addNode({ id: 'n1', title: 'メニュー', x: 0, y: 0, note: '要確認' });
+el.addEdge({ id: 'e1', source: 'n1', sourcePort: 'out', target: 'n2', targetPort: 'in',
+             note: { text: 'この経路は暫定', color: 'amber' } });
+
+el.setNote('n1', { text: '仕様が未定', color: 'red' });   // 設定（Undo 可）
+el.setNote('n1', null);                                   // 削除
+el.noteOf('n1');                                          // → { text, color? } | null
+el.notesList();                                           // → [{ kind, id, note }, ...]
+el.editNote('n1');                                        // インライン編集を開始
+```
+
+色は `theme.note.colors` のキー（`gray` / `blue` / `amber` / `red` / `green` / `purple`）か、CSS の色を直接書けます。キーはテーマで足せます。
+
+```js
+el.theme = { note: { maxWidth: 200, colors: { review: '#0ea5e9' } } };
+```
+
+扱いは次のとおりです。
+
+- **配置**: ノードは右上 → 左上 → 右下 → 左下 → 上 → 下 → ノード内右上の順に試し、最初に空いている場所に置きます。コネクタは中点の上 → 下 → 右 → 左。バッジ同士も重なりません
+- **大きさ**: 画面上では拡大率に関わらず一定。長いメモは 1 行に省略（`…`）され、マウスを乗せると全文が吹き出しで出ます（`theme.note.maxWidth` で幅を変更可）
+- **縮小時**: 簡易表示（LOD）に入ると文字をやめて色の丸だけになり、「どこに何色のメモがあるか」だけ分かります
+- **操作**: バッジをダブルクリックで編集、右クリックメニューに「メモを追加 / 編集 / 削除」。バッジのクリックは下のノード・コネクタの選択として扱われるので、そのままドラッグもできます
+- **イベント**: `note-hover`（バッジに乗った／外れた）と `note-edit`（ダブルクリック。`preventDefault()` で内蔵のインライン編集を止めて独自 UI に差し替えられる）
+- **JSON**: そのまま保存・復元されます
+
+バッジの配置ロジックは `graph.placeNear()` として公開しているので、後述の「追加描画（オーバーレイ）」で独自のバッジを出すときにも使えます。
+
+```js
+const box = el.editor.graph.placeNear(nodeRect, { w: 80, h: 18 }, {
+  placements: ['top-right', 'top-left', 'bottom'],  // 試す順番
+  avoid: alreadyPlaced,                             // すでに置いた矩形
+  ignore: [node.id],                                // 判定から除くノード（普通は自分自身）
+});
+// → { x, y, w, h, placement, free }（free: false なら全部ふさがっていた）
+```
+
 #### コネクタを使わない遷移（`goto`）
 
 チャットシナリオのように「この選択肢を選んだらこのノードへ」という遷移を、コネクタを引かずにノード ID で指定できます。ノードにも項目にも `goto` を書けます。
@@ -543,6 +587,7 @@ editor.on('selection:change', console.log);
     { id: 'n2', title: '子ノード', input: true, output: true, items: [] },
   ],
   goto: 'n9',               // 任意。コネクタを使わない遷移先（ID 指定）
+  note: { text: '要確認', color: 'amber' },  // 任意。メモ（文字列だけでも可）
   style: { headerFill: '#fee' }, // 任意。theme.node.* の上書き
   data: {},                 // 任意データ
 }
@@ -554,6 +599,7 @@ editor.on('selection:change', console.log);
   target: 'n2', targetPort: 'item:p1:in',    // ヘッダポートは 'in'
   style: { stroke: '#f00' },                 // 任意。theme.edge.* の上書き
   type: 'step',                              // 任意。描画方法 'bezier' | 'straight' | 'step'（省略時は全体の既定）
+  note: 'この経路は暫定',                      // 任意。メモ（中点の近くにバッジで出る）
 }
 ```
 
@@ -638,6 +684,7 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
 | Ctrl/Cmd + A | 全選択 |
 | Ctrl/Cmd + Shift + A / ツールバー「強調を選択」 | 強調表示されている要素をまとめて選択（`selectFocused`） |
 | 右クリック | 対象に応じたメニューを表示（↑ ↓ で移動、Enter で実行、Escape で閉じる） |
+| メモのバッジをダブルクリック | メモを編集（マウスを乗せると全文表示） |
 | Ctrl/Cmd + Z / Ctrl/Cmd + Shift + Z（または Ctrl/Cmd + Y） | Undo / Redo |
 | Ctrl/Cmd + 0 / + / − | 縮尺リセット / 拡大 / 縮小 |
 | N（デモのみ） | マウス位置にノードを追加（`addNodeAtPointer` の例） |

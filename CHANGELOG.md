@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 追加
+- **ノード・コネクタのメモ（`note`）**: `node.note` / `edge.note` に `'要確認'` または `{text, color}` を書くと、ノードの外側（コネクタは中点の近く）に色分けしたバッジで出る。ノードの大きさは変わらず、置き場所は他のノードやバッジと重ならない位置が自動で選ばれる。長いメモは 1 行に省略してホバーで全文を吹き出し表示、縮小時（LOD）は色の丸だけに縮退。バッジのダブルクリックで編集、右クリックメニューに「メモを追加 / 編集 / 削除」。API: `setNote(target, value)` / `noteOf(target)` / `notes()` / `noteAt(x, y)` / `noteBoxes()`、Lit は `setNote` / `noteOf` / `notesList()` / `editNote(target)` と属性 `notes="false"`、イベント `note:hover` / `note:edit`（Lit: `note-hover` / `note-edit`）。テーマ `theme.note`
+- **バッジの配置ヘルパー `graph.placeNear(anchor, size, options)`**: 小さな矩形を、ノードや既に置いた矩形と重ならない位置に置く。候補（`top-right` / `top-left` / `bottom-right` / `bottom-left` / `top` / `bottom` / `left` / `right` / `inside-top-right` / `center`）を順に試し、`{x, y, w, h, placement, free}` を返す。メモの配置に使っているものをそのまま公開しているので、`overlayRenderer` で独自のバッジを出すときにも使える。`normalizeNote(value)` / `rectsOverlap(a, b)` も公開
+
 ## [0.5.0] - 2026-09-18
 
 ### 変更

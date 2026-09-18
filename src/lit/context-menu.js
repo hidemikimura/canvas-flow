@@ -25,6 +25,19 @@ export function defaultContextMenuItems(ctx) {
   const selEdges = editor.selectedEdgeIds().length;
   const many = selNodes > 1;
 
+  // メモ（note）の項目はノードでもコネクタでも同じ形で出す
+  const noteItems = (target) => {
+    const current = graph.noteOf(target);
+    return [
+      current
+        ? { id: 'note-edit', label: 'メモを編集', run: (c) => c.el.editNote(target) }
+        : { id: 'note-add', label: 'メモを追加', run: (c) => c.el.editNote(target) },
+      ...(current
+        ? [{ id: 'note-remove', label: 'メモを削除', danger: true, run: (c) => c.el.setNote(target, null) }]
+        : []),
+    ];
+  };
+
   if (type === 'node' || type === 'item' || type === 'port' || type === 'resize') {
     const isChild = graph.isChild(node);
     // 子ノードを右クリックしたときは、選択（＝一番外側の親）ではなくその子に対して効かせる
@@ -47,6 +60,8 @@ export function defaultContextMenuItems(ctx) {
       { id: 'select-focused', label: '強調されている要素を選択', shortcut: 'Ctrl+Shift+A', run: () => el.selectFocused() },
       { id: 'select-connected', label: 'つながっている要素を選択', run: () => el.selectConnected() },
       SEP,
+      ...noteItems(node),
+      SEP,
       { id: 'copy', label: 'コピー', shortcut: 'Ctrl+C', run: () => editor.copySelection() },
       { id: 'center', label: 'このノードを中心に', run: () => el.focusNode(node.id) },
     ];
@@ -61,6 +76,8 @@ export function defaultContextMenuItems(ctx) {
       { id: 'edge-bezier', label: `曲線にする${current === 'bezier' ? '（現在）' : ''}`, disabled: current === 'bezier', run: setType('bezier') },
       { id: 'edge-straight', label: `直線にする${current === 'straight' ? '（現在）' : ''}`, disabled: current === 'straight', run: setType('straight') },
       { id: 'edge-step', label: `直角にする${current === 'step' ? '（現在）' : ''}`, disabled: current === 'step', run: setType('step') },
+      SEP,
+      ...noteItems(edge),
       SEP,
       { id: 'select-ends', label: '両端のノードを選択', run: () => editor.select({ nodes: [edge.source, edge.target], edges: [edge.id] }) },
     ];

@@ -13,6 +13,8 @@ import type {
   ContextMenuDetail,
   GotoLink,
   GotoSpec,
+  Note,
+  NoteSpec,
   Graph,
   ConnectRules,
   Edge,
@@ -31,6 +33,7 @@ import type {
   NodeTypeDef,
   Point,
   PortKey,
+  Rect,
   SearchQuery,
   ThemePatch,
 } from './core.js';
@@ -91,6 +94,10 @@ export interface CanvasFlowEditorEventMap {
   /** 右クリック。`preventDefault()` すると内蔵メニューを出さない */
   'context-menu': ContextMenuDetail;
   'context-menu-select': { id: string | null; item: ContextMenuItem; target: ContextMenuContext | null };
+  /** メモのバッジに乗った／外れた */
+  'note-hover': { kind: 'node' | 'edge'; id: string; note: Note; rect: Rect; screenRect: Rect } | { note: null };
+  /** メモのバッジをダブルクリックした。preventDefault でインライン編集を止められる */
+  'note-edit': { kind: 'node' | 'edge'; id: string; note: Note | null; rect: Rect; screenRect: Rect };
   'history-change': { canUndo: boolean; canRedo: boolean };
   'canvas-dblclick': Point;
   'edge-dblclick': { edge: Edge; at: Point };
@@ -153,6 +160,8 @@ export class CanvasFlowEditor extends LitElement {
   exportFilename: string;
   /** 属性 `context-menu`。`"false"` で内蔵の右クリックメニューを無効にする（read-only では出ない） */
   contextMenu: boolean;
+  /** 属性 `notes`。`"false"` でメモのバッジを描かない（既定 有効） */
+  notes: boolean;
   /** 右クリックメニューの項目。配列か、対象ごとに項目を組み立てる関数 */
   contextMenuItems: ContextMenuItem[] | ((ctx: ContextMenuContext) => ContextMenuItem[]) | null;
 
@@ -169,6 +178,14 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAt(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtPointer(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtCenter(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
+  /** メモを設定する（null / 空文字で削除） */
+  setNote(target: Node | Edge | string, value: NoteSpec | null): Node | Edge | null;
+  /** メモを取得する */
+  noteOf(target: Node | Edge | string): Note | null;
+  /** メモが付いているものの一覧（属性 `notes` と名前が衝突するため別名） */
+  notesList(): Array<{ kind: 'node' | 'edge'; id: string; note: Note }>;
+  /** メモの編集を開始する（バッジのダブルクリックと同じ） */
+  editNote(target: Node | Edge | string): boolean;
   /** goto（ID 指定の遷移）を設定する（itemId を渡すとその項目に。null で解除） */
   setGoto(nodeOrId: Node | string, value: GotoSpec | null, options?: { itemId?: string }): Node | NodeItem | null;
   /** goto の一覧（引数を省略するとグラフ全体） */

@@ -118,6 +118,8 @@ describe('defaultContextMenuItems', () => {
     return {
       calls,
       duplicateSelection: rec('duplicateSelection'),
+      editNote: rec('editNote'),
+      setNote: rec('setNote'),
       deleteSelection: rec('deleteSelection'),
       deleteSelectedEdges: rec('deleteSelectedEdges'),
       addChild: rec('addChild'),
@@ -148,7 +150,8 @@ describe('defaultContextMenuItems', () => {
     editor.select({ nodes: ['a'] });
     const { items } = build({ type: 'node', node: editor.graph.getNode('a') });
     expect(ids(items)).toEqual([
-      'duplicate', 'delete', 'delete-edges', 'add-child', 'select-focused', 'select-connected', 'copy', 'center',
+      'duplicate', 'delete', 'delete-edges', 'add-child', 'select-focused', 'select-connected',
+      'note-add', 'copy', 'center',
     ]);
     // 区切り線が先頭・末尾に来ない
     expect(items[0].type).not.toBe('separator');
@@ -184,12 +187,32 @@ describe('defaultContextMenuItems', () => {
   it('コネクタでは削除と描画方法の切り替えが出る（現在の方法は無効）', () => {
     const edge = editor.graph.getEdge('ab');
     const { el, ctx, items } = build({ type: 'edge', edge });
-    expect(ids(items)).toEqual(['delete-edge', 'edge-bezier', 'edge-straight', 'edge-step', 'select-ends']);
+    expect(ids(items)).toEqual(['delete-edge', 'edge-bezier', 'edge-straight', 'edge-step', 'note-add', 'select-ends']);
     expect(items.find((i) => i.id === 'edge-bezier').disabled).toBe(true);
     run(items, 'edge-step', ctx);
     expect(el.calls).toEqual([['setEdgeType', 'step', ['ab']]]);
     run(items, 'select-ends', ctx);
     expect([...editor.selection.nodes].sort()).toEqual(['a', 'b']);
+  });
+
+  it('メモが付いていれば編集・削除、無ければ追加が出る', () => {
+    editor.select({ nodes: ['a'] });
+    const before = build({ type: 'node', node: editor.graph.getNode('a') }).items;
+    expect(ids(before)).toContain('note-add');
+    expect(ids(before)).not.toContain('note-remove');
+
+    editor.graph.setNote('a', '要確認');
+    const { el, ctx, items } = build({ type: 'node', node: editor.graph.getNode('a') });
+    expect(ids(items)).toContain('note-edit');
+    expect(ids(items)).toContain('note-remove');
+    el.editNote = (t) => el.calls.push(['editNote', typeof t === 'string' ? t : t.id]);
+    el.setNote = (t, v) => el.calls.push(['setNote', typeof t === 'string' ? t : t.id, v]);
+    run(items, 'note-edit', ctx);
+    run(items, 'note-remove', ctx);
+    expect(el.calls).toEqual([
+      ['editNote', 'a'],
+      ['setNote', 'a', null],
+    ]);
   });
 
   it('空白では追加・選択・ビュー系が出る', () => {

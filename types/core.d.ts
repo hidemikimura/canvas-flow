@@ -112,6 +112,40 @@ export interface GotoLink {
   exists: boolean;
 }
 
+/**
+ * ノード・コネクタに付けるメモ。文字列で書くと `{text}` として扱われる。
+ * `color` は `theme.note.colors` のキー（gray / blue / amber / red / green / purple）か CSS の色。
+ */
+export type NoteSpec = string | { text: string; color?: string };
+
+/** 正規化されたメモ */
+export interface Note {
+  text: string;
+  color?: string;
+}
+
+/** メモのバッジ 1 つ（直前の描画時点の位置） */
+export interface NoteBox {
+  kind: 'node' | 'edge';
+  id: string;
+  note: Note;
+  rect: Rect;
+  placement: NotePlacement;
+}
+
+/** `placeNear()` で使える置き場所 */
+export type NotePlacement =
+  | 'top-right'
+  | 'top-left'
+  | 'bottom-right'
+  | 'bottom-left'
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'inside-top-right'
+  | 'center';
+
 /** ノード内の項目（行） */
 export interface NodeItem {
   id: string;
@@ -151,6 +185,8 @@ export interface Node {
   parent?: string;
   /** コネクタを使わない ID 指定の遷移先 */
   goto?: GotoSpec;
+  /** ノードに付けるメモ（外側にバッジで出る） */
+  note?: NoteSpec;
   /** `theme.node.*` の上書き */
   style?: Partial<NodeStyle>;
   data?: unknown;
@@ -180,6 +216,8 @@ export interface Edge {
   targetPort: PortKey;
   /** 描画方法。省略時は全体の既定（`theme.edge.type`） */
   type?: EdgeType;
+  /** コネクタに付けるメモ（中点の近くにバッジで出る） */
+  note?: NoteSpec;
   /** `theme.edge.*` の上書き */
   style?: Partial<EdgeStyle>;
   data?: unknown;
@@ -260,6 +298,24 @@ export interface GotoStyle {
   labelBg: string;
 }
 
+/** メモのバッジの見た目 */
+export interface NoteStyle {
+  height: number;
+  maxWidth: number;
+  radius: number;
+  gap: number;
+  font: string;
+  fill: string;
+  color: string;
+  stroke: string | null;
+  strokeWidth: number;
+  /** 簡易表示（LOD）で出す丸の半径 */
+  dot: number;
+  /** これより縮小したら丸も描かない */
+  dotMinZoom: number;
+  colors: Record<string, string>;
+}
+
 export interface PortStyle {
   radius: number;
   fill: string;
@@ -325,6 +381,7 @@ export interface Theme {
   node: NodeStyle;
   port: PortStyle;
   edge: EdgeStyle;
+  note: NoteStyle;
   goto: GotoStyle;
   focus: FocusStyle;
   selectionBox: { fill: string; stroke: string };
@@ -427,6 +484,12 @@ export function pickTextFile(accept?: string): Promise<string | null>;
 export function uid(prefix?: string): string;
 export function portKey(itemId: string | null | undefined, dir: PortDir): PortKey;
 export function parsePortKey(key: string): { itemId: string | null; dir: PortDir } | null;
+/** メモの値を `{text, color?}` に正規化する（空や不正は null） */
+export function normalizeNote(value: NoteSpec | null | undefined): Note | null;
+
+/** 2 つの矩形が重なっているか */
+export function rectsOverlap(a: Rect, b: Rect): boolean;
+
 /** `goto` の値を `[{to, label?}]` に正規化する */
 export function normalizeGoto(value: GotoSpec | null | undefined): Array<{ to: string; label?: string }>;
 
@@ -583,6 +646,8 @@ export class Renderer {
   renderNode: NodeRenderer | null;
   renderEdge: EdgeRenderer | null;
   renderOverlay: OverlayRenderer | null;
+  /** 直前の描画で置いたメモバッジの矩形 */
+  noteBoxes: NoteBox[];
   resolveNodeStyle: (node: Node) => NodeStyle;
   resolveEdgeStyle: (edge: Edge) => EdgeStyle;
   stats: RenderStats;
@@ -782,6 +847,29 @@ export class Graph extends Emitter<GraphEvents> {
     options?: { depth?: number; direction?: FocusDirection; includeStart?: boolean; links?: boolean },
   ): { nodes: Set<string>; edges: Set<string>; links: Set<string> };
 
+  /* メモ（note） */
+  /** メモを取得する（ノード / コネクタ、またはその id。ノードを先に探す） */
+  noteOf(target: Node | Edge | string): Note | null;
+  /** メモを設定する（null / 空文字で削除） */
+  setNote(target: Node | Edge | string, value: NoteSpec | null): Node | Edge | null;
+  /** メモが付いているものの一覧 */
+  notes(): Array<{ kind: 'node' | 'edge'; id: string; note: Note }>;
+  /**
+   * バッジのような小さな矩形を、ノードや既に置いた矩形と重ならない位置に置く。
+   * 候補を順に試して最初に空いていた場所を返す（全部ふさがっていたら最後の候補で free: false）。
+   */
+  placeNear(
+    anchor: Rect,
+    size: { w: number; h: number },
+    options?: {
+      placements?: NotePlacement[];
+      avoid?: Rect[];
+      ignore?: Iterable<string>;
+      gap?: number;
+      overlap?: number;
+    },
+  ): Rect & { placement: NotePlacement; free: boolean };
+
   /* goto（ID 指定の遷移） */
   /** ノード（と項目）に書かれた goto の一覧。引数を省略するとグラフ全体 */
   gotoLinks(nodeOrId?: Node | string): GotoLink[];
@@ -839,6 +927,8 @@ export interface NodeEditorOptions {
   rules?: Partial<ConnectRules>;
   /** ホバー・選択中のコネクタに削除アイコンを出す（既定 true） */
   edgeDeleteIcon?: boolean;
+  /** メモのバッジを描く（既定 true） */
+  notes?: boolean;
   /** キーボード操作を受け付ける範囲の要素 */
   keyboardScope?: EventTarget;
   /** この間隔（ms）以内のホイールイベントは同じ操作として扱う */
@@ -855,11 +945,11 @@ export interface NodeEditorOptions {
 
 export type HitTestResult =
   | { type: 'none' }
-  | { type: 'node'; node: Node; header: boolean }
+  | { type: 'node'; node: Node; header: boolean; note?: NoteBox }
   | { type: 'item'; node: Node; item: NodeItem }
   | { type: 'port'; node: Node; port: PortInfo }
   | { type: 'resize'; node: Node }
-  | { type: 'edge'; edge: Edge }
+  | { type: 'edge'; edge: Edge; note?: NoteBox }
   | { type: 'edge-delete'; edge: Edge };
 
 export interface PointerInfo {
@@ -969,6 +1059,8 @@ export interface NodeEditorEvents {
   'focus:change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[]; links: string[] };
   'focus:select': { mode: FocusMode; nodes: string[]; edges: string[] };
   'context:menu': ContextMenuDetail;
+  'note:hover': ({ kind: 'node' | 'edge'; id: string; note: Note; rect: Rect; screenRect: Rect } | { note: null });
+  'note:edit': { kind: 'node' | 'edge'; id: string; note: Note | null; rect: Rect; screenRect: Rect };
   'node:edit': { node: Node; rect: Rect; screenRect: Rect };
   'item:edit': { node: Node; item: NodeItem; rect: Rect; screenRect: Rect };
   'canvas:dblclick': Point;
@@ -1030,6 +1122,14 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   set focusMode(mode: FocusMode | boolean);
   /** 現在の強調対象。無効なとき・選択が空のときは null */
   focusSet(): FocusSet | null;
+  /** メモを設定する（Undo 可。readOnly では null） */
+  setNote(target: Node | Edge | string, value: NoteSpec | null): Node | Edge | null;
+  noteOf(target: Node | Edge | string): Note | null;
+  notes(): Array<{ kind: 'node' | 'edge'; id: string; note: Note }>;
+  /** その位置にあるメモのバッジ（直前の描画で置いた位置で判定する） */
+  noteAt(wx: number, wy: number): NoteBox | null;
+  /** メモのバッジの一覧（直前の描画時点の位置） */
+  noteBoxes(): NoteBox[];
   /** goto を設定する（Undo 可。readOnly では null） */
   setGoto(nodeOrId: Node | string, value: GotoSpec | null, options?: { itemId?: string }): Node | NodeItem | null;
   gotoLinks(nodeOrId?: Node | string): GotoLink[];

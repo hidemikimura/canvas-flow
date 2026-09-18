@@ -61,6 +61,33 @@ export const defaultTheme = {
       hoverColor: '#ffffff',
     },
   },
+  /**
+   * ノード・コネクタに付けるメモのバッジ。
+   * `colors` のキーを `note.color` に書くとその色で出る（CSS の色を直接書いてもよい）。
+   */
+  note: {
+    height: 18,
+    maxWidth: 160,
+    radius: 9,
+    gap: 4,
+    font: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
+    fill: '#475569',
+    color: '#ffffff',
+    stroke: 'rgba(255,255,255,0.9)',
+    strokeWidth: 1.5,
+    /** 簡易表示（LOD）で数値やテキストの代わりに出す丸の半径 */
+    dot: 5,
+    /** これより縮小したら丸も描かない（全体表示で点が散らばるのを防ぐ） */
+    dotMinZoom: 0.12,
+    colors: {
+      gray: '#475569',
+      blue: '#2563eb',
+      amber: '#d97706',
+      red: '#dc2626',
+      green: '#059669',
+      purple: '#7c3aed',
+    },
+  },
   /** goto（ID 指定の遷移）の点線。選択・強調されているときだけ描く */
   goto: {
     stroke: '#94a3b8',

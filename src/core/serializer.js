@@ -1,4 +1,4 @@
-import { uid, parsePortKey, normalizeGoto } from './graph.js';
+import { uid, parsePortKey, normalizeGoto, normalizeNote } from './graph.js';
 
 /**
  * JSON インポート／エクスポートのフォーマット処理。
@@ -152,6 +152,11 @@ export function validate(data) {
           return item;
         });
     }
+    // メモは形だけ見て、解釈できないものは落とす
+    if (node.note != null && !normalizeNote(node.note)) {
+      warnings.push(`${path}: note を解釈できないため無視しました`);
+      delete node.note;
+    }
     // goto（ID 指定の遷移）は形だけ見て、解釈できないものは落とす
     if (node.goto != null && !normalizeGoto(node.goto).length) {
       warnings.push(`${path}: goto を解釈できないため無視しました`);
@@ -205,6 +210,10 @@ export function validate(data) {
     if (!s || !t) return void warnings.push(`edges[${i}]: 存在しないノードを参照しているため無視しました`);
     edge.source = s.id;
     edge.target = t.id;
+    if (edge.note != null && !normalizeNote(edge.note)) {
+      warnings.push(`edges[${i}]: note を解釈できないため無視しました`);
+      delete edge.note;
+    }
     if (!portExists(s, edge.sourcePort, 'out') || !portExists(t, edge.targetPort, 'in')) {
       return void warnings.push(`edges[${i}]: 存在しないポートを参照しているため無視しました`);
     }

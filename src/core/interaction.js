@@ -556,22 +556,32 @@ export class Interaction {
     const w = ed.viewport.toWorld(s.x, s.y);
     const hit = ed.hitTest(w.x, w.y);
     const h = ed.hover;
+    const noteKey = hit.note ? `${hit.note.kind}:${hit.note.id}` : null;
     const next = {
       node: hit.type === 'node' || hit.type === 'item' || hit.type === 'port' || hit.type === 'resize' ? hit.node.id : null,
       // アイコン上でもコネクタはホバー扱いにして、アイコンが消えないようにする
       edge: hit.type === 'edge' || hit.type === 'edge-delete' ? hit.edge.id : null,
       port: hit.type === 'port' ? { node: hit.node.id, port: hit.port.key } : null,
       edgeDelete: hit.type === 'edge-delete' ? hit.edge.id : null,
+      note: noteKey,
     };
     const changed =
       next.node !== h.node ||
       next.edge !== h.edge ||
       next.edgeDelete !== h.edgeDelete ||
+      next.note !== h.note ||
       (next.port?.node ?? null) !== (h.port?.node ?? null) ||
       (next.port?.port ?? null) !== (h.port?.port ?? null);
     if (changed) {
       ed.hover = next;
       ed.requestRender();
+      // メモは全文を出したいことがあるので、乗った／外れたを知らせる
+      if (next.note !== h.note) {
+        ed.emit(
+          'note:hover',
+          hit.note ? { ...hit.note, screenRect: ed.worldRectToScreen(hit.note.rect) } : { note: null },
+        );
+      }
     }
     this.canvas.style.cursor =
       hit.type === 'edge-delete'
@@ -642,6 +652,11 @@ export class Interaction {
     const s = this._local(e);
     const w = ed.viewport.toWorld(s.x, s.y);
     const hit = ed.hitTest(w.x, w.y);
+    if (hit.note) {
+      // メモのバッジをダブルクリック → 編集
+      ed.emit('note:edit', { ...hit.note, screenRect: ed.worldRectToScreen(hit.note.rect) });
+      return;
+    }
     if (hit.type === 'item') {
       const rect = ed.graph.itemRect(hit.node, hit.item.id);
       ed.emit('item:edit', { node: hit.node, item: hit.item, rect, screenRect: ed.worldRectToScreen(rect) });

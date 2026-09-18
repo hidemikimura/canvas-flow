@@ -25,6 +25,7 @@ export { defaultContextMenuItems } from './context-menu.js';
  *  - edge-type   bezier | straight | step     コネクタの描画方法（既定 bezier）。コネクタ単位は edge.type
  *  - focus-mode  off | connected | neighbors   選択ノードと繋がっている要素を強調し他を薄くする（既定 off）
  *  - context-menu "false" で無効             右クリックメニュー（既定 有効。read-only では出さない）
+ *  - notes       "false" で無効              ノード・コネクタのメモのバッジ（既定 有効）
  *
  * 右クリックメニューの項目は `contextMenuItems`（配列 or (ctx) => 配列）で差し替え・追加できる。
  * `ctx` には `context-menu` イベントの detail に加えて `el` / `editor` / `graph` / `defaultItems` が入る。
@@ -35,7 +36,8 @@ export { defaultContextMenuItems } from './context-menu.js';
  *  history-change, import, export, import-error, connect-rejected, layout,
  *  edge-type-change, focus-change, focus-select, edges-delete, insert,
  *  node-click, item-click, edge-click, canvas-click, canvas-dblclick, ready,
- *  context-menu（preventDefault で内蔵メニューを抑止できる）, context-menu-select
+ *  context-menu（preventDefault で内蔵メニューを抑止できる）, context-menu-select,
+ *  note-hover, note-edit
  *
  * メソッド: `editor` で NodeEditor を直接操作できるほか、よく使うものは委譲している。
  */
@@ -59,9 +61,11 @@ export class CanvasFlowEditor extends LitElement {
     focusMode: { attribute: 'focus-mode' },
     exportFilename: { attribute: 'export-filename' },
     contextMenu: { attribute: 'context-menu', converter: (v) => v !== 'false' && v !== '0' },
+    notes: { attribute: 'notes', converter: (v) => v !== 'false' && v !== '0' },
     contextMenuItems: { attribute: false },
     _dropping: { state: true },
     _menu: { state: true },
+    _noteTip: { state: true },
     minimapWidth: { attribute: 'minimap-width', type: Number },
     minimapHeight: { attribute: 'minimap-height', type: Number },
     _editing: { state: true },
@@ -216,6 +220,21 @@ export class CanvasFlowEditor extends LitElement {
       margin: 4px 2px;
       background: #eef1f5;
     }
+    .note-tip {
+      position: absolute;
+      z-index: 5;
+      max-width: 260px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: rgba(31, 41, 51, 0.95);
+      color: #fff;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      pointer-events: none;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+    }
     .inline-editor {
       position: absolute;
       box-sizing: border-box;
@@ -246,6 +265,8 @@ export class CanvasFlowEditor extends LitElement {
     this.focusMode = 'off';
     this.exportFilename = 'canvas-flow.json';
     this.contextMenu = true;
+    this.notes = true;
+    this._noteTip = null;
     /** @type {Array<object>|((ctx:object)=>Array<object>)|null} */
     this.contextMenuItems = null;
     this._menu = null;
@@ -344,10 +365,31 @@ export class CanvasFlowEditor extends LitElement {
     ed.on('viewport:change', () => {
       this._cancelEdit();
       this.closeContextMenu();
+      this._noteTip = null;
     });
 
     // 右クリックメニュー
     ed.on('context:menu', (detail) => this._openContextMenu(detail));
+
+    // メモ: ホバーで全文を吹き出しに出し、ダブルクリックで編集する
+    ed.on('note:hover', (detail) => {
+      this._dispatch('note-hover', detail);
+      this._noteTip = detail && detail.note ? detail : null;
+    });
+    ed.on('note:edit', (detail) => {
+      if (this.readOnly) return;
+      if (this._dispatch('note-edit', detail, true)) {
+        this._noteTip = null;
+        this._startEdit({
+          kind: 'note',
+          target: detail.kind === 'node' ? detail.id : detail.id,
+          noteKind: detail.kind,
+          value: detail.note?.text ?? '',
+          color: detail.note?.color ?? null,
+          screenRect: detail.screenRect,
+        });
+      }
+    });
 
     this._ro = new ResizeObserver(() => this._syncSize());
     this._ro.observe(this);
@@ -393,6 +435,11 @@ export class CanvasFlowEditor extends LitElement {
     if (changed.has('wheelMode')) ed.options.wheelMode = this.wheelMode;
     if (changed.has('dragMode')) ed.options.dragMode = this.dragMode;
     if (changed.has('readOnly')) ed.options.readOnly = this.readOnly;
+    if (changed.has('notes')) {
+      ed.options.notes = this.notes;
+      this._noteTip = null;
+      ed.requestRender();
+    }
     if (changed.has('maxInputs') || changed.has('maxOutputs') || changed.has('onFull')) ed.setRules(this._rules());
     if (changed.has('moveSnap')) ed.setMoveSnap(this.moveSnap);
     if (changed.has('edgeType') && this.edgeType && ed.edgeType !== this.edgeType) ed.setEdgeType(this.edgeType);
@@ -606,6 +653,50 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAtCenter(spec, options) {
     return this.editor?.addNodeAtCenter(spec, options) ?? null;
   }
+  /* ---------- メモ（note） ---------- */
+
+  /** メモを設定する（null / 空文字で削除） */
+  setNote(target, value) {
+    return this.editor?.setNote(target, value) ?? null;
+  }
+  /** メモを取得する */
+  noteOf(target) {
+    return this.editor?.noteOf(target) ?? null;
+  }
+  /** メモが付いているものの一覧 */
+  notesList() {
+    return this.editor?.notes() ?? [];
+  }
+  /** メモの編集を開始する（バッジのダブルクリックと同じ） */
+  editNote(target) {
+    const ed = this.editor;
+    if (!ed || this.readOnly) return false;
+    const found = ed.graph._resolveNoteTarget(target);
+    if (!found) return false;
+    const kind = found.kind;
+    const id = found.obj.id;
+    const box = ed.noteBoxes().find((b) => b.kind === kind && b.id === id);
+    const rect = box
+      ? box.rect
+      : kind === 'node'
+        ? (() => {
+            const r = ed.graph.nodeRect(found.obj);
+            return { x: r.x, y: r.y - 22 / ed.viewport.zoom, w: Math.min(r.w, 160), h: 20 / ed.viewport.zoom };
+          })()
+        : (() => {
+            const p = ed.graph.edgePoint(found.obj, 0.5) ?? { x: 0, y: 0 };
+            return { x: p.x - 60, y: p.y - 10, w: 120, h: 20 / ed.viewport.zoom };
+          })();
+    ed.emit('note:edit', {
+      kind,
+      id,
+      note: ed.noteOf(found.obj),
+      rect,
+      screenRect: ed.worldRectToScreen(rect),
+    });
+    return true;
+  }
+
   /* ---------- goto（ID 指定の遷移） ---------- */
 
   /** goto を設定する。itemId を渡すとその項目に設定する（null で解除） */
@@ -790,6 +881,12 @@ export class CanvasFlowEditor extends LitElement {
     const value = input ? input.value : ed.value;
     this._editing = null;
     if (value === ed.value) return;
+    if (ed.kind === 'note') {
+      const text = value.trim();
+      this.editor.setNote(ed.target, text ? { text, ...(ed.color ? { color: ed.color } : null) } : null);
+      this.editor.canvas.focus({ preventScroll: true });
+      return;
+    }
     if (ed.kind === 'title') this.editor.graph.updateNode(ed.nodeId, { title: value });
     else {
       const node = this.editor.graph.getNode(ed.nodeId);
@@ -820,6 +917,17 @@ export class CanvasFlowEditor extends LitElement {
   }
 
   /* ---------- render ---------- */
+
+  /** メモの全文を出す吹き出し（バッジは 1 行に省略されるため） */
+  _renderNoteTip() {
+    const tip = this._noteTip;
+    const r = tip.screenRect ?? { x: 0, y: 0, w: 0, h: 0 };
+    const host = this.getBoundingClientRect();
+    const left = Math.max(4, Math.min(r.x, (host.width || 0) - 270));
+    const below = r.y + r.h + 6;
+    const style = `left:${Math.round(left)}px; top:${Math.round(below)}px`;
+    return html`<div class="note-tip" part="note-tip" style=${style}>${tip.note.text}</div>`;
+  }
 
   _renderContextMenu() {
     const menu = this._menu;
@@ -904,6 +1012,7 @@ export class CanvasFlowEditor extends LitElement {
               <slot name="toolbar"></slot>
             </div>`
           : nothing}
+        ${this._noteTip ? this._renderNoteTip() : nothing}
         ${this._menu ? this._renderContextMenu() : nothing}
         ${this._editing
           ? html`<input

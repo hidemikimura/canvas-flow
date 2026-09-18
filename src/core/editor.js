@@ -13,7 +13,7 @@ export { Graph, Viewport, Renderer, Minimap, defaultTheme, mergeTheme, uid };
 export { portKey, parsePortKey } from './graph.js';
 export { serialize, parse, validate, remapForMerge, FORMAT, FORMAT_VERSION } from './serializer.js';
 export { layeredLayout } from './layout.js';
-export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, normalizeGoto, EDGE_TYPES } from './graph.js';
+export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, normalizeGoto, normalizeNote, rectsOverlap, EDGE_TYPES } from './graph.js';
 
 /**
  * フレームワーク非依存のノードエディタ本体。
@@ -43,6 +43,8 @@ export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, no
  *  - 'edge:click'             { edge, x, y, ... }
  *  - 'canvas:click'           { x, y, ... }  空白をクリック
  *  - 'context:menu'           { type, node, item, edge, port, x, y, screen, client, selection, originalEvent }  右クリック（既定のブラウザメニューは抑制される）
+ *  - 'note:hover'             { kind, id, note, rect, screenRect } | { note: null }  メモのバッジに乗った／外れた
+ *  - 'note:edit'              { kind, id, note, rect, screenRect }  メモのバッジをダブルクリックした
  */
 export class NodeEditor extends Emitter {
   /**
@@ -65,7 +67,7 @@ export class NodeEditor extends Emitter {
   constructor(canvas, options = {}) {
     super();
     this.canvas = canvas;
-    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, focusMode: 'off', focusDepth: 1, focusDirection: 'lineage', ...options };
+    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, focusMode: 'off', focusDepth: 1, focusDirection: 'lineage', notes: true, ...options };
     this.theme = mergeTheme(defaultTheme, options.theme);
     this.nodeTypes = { ...(options.nodeTypes ?? {}) };
 
@@ -88,7 +90,7 @@ export class NodeEditor extends Emitter {
     this.renderer.resolveNodeStyle = (node) => this._nodeStyle(node);
 
     this.selection = { nodes: new Set(), edges: new Set() };
-    this.hover = { node: null, edge: null, port: null, edgeDelete: null };
+    this.hover = { node: null, edge: null, port: null, edgeDelete: null, note: null };
     this.selectionBox = null;
     this.pendingEdge = null;
     this._clipboard = null;
@@ -266,6 +268,47 @@ export class NodeEditor extends Emitter {
   /** 一番外側の親（自分が子でなければ自分自身） */
   rootNodeOf(nodeOrId) {
     return this.graph.rootOf(nodeOrId);
+  }
+
+  /* ---------- メモ（note） ---------- */
+
+  /** メモを設定する（Undo 可）。null / 空文字で削除 */
+  setNote(target, value) {
+    if (this.options.readOnly) return null;
+    return this.graph.setNote(target, value);
+  }
+
+  /** メモを取得する */
+  noteOf(target) {
+    return this.graph.noteOf(target);
+  }
+
+  /** メモが付いているものの一覧 */
+  notes() {
+    return this.graph.notes();
+  }
+
+  /**
+   * その位置にあるメモのバッジ（直前の描画で置いた位置で判定する）。
+   * @returns {{kind:'node'|'edge', id:string, note:object, rect:object}|null}
+   */
+  noteAt(wx, wy) {
+    if (this.options.notes === false) return null;
+    const boxes = this.renderer.noteBoxes;
+    for (let i = boxes.length - 1; i >= 0; i--) {
+      const b = boxes[i];
+      const r = b.rect;
+      if (wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h) {
+        const alive = b.kind === 'node' ? this.graph.nodes.has(b.id) : this.graph.edges.has(b.id);
+        if (alive) return b;
+      }
+    }
+    return null;
+  }
+
+  /** メモのバッジの一覧（直前の描画時点の位置） */
+  noteBoxes() {
+    return this.renderer.noteBoxes;
   }
 
   /* ---------- goto（ID 指定の遷移） ---------- */
@@ -473,6 +516,7 @@ export class NodeEditor extends Emitter {
       selectionBox: this.selectionBox,
       pendingEdge: this.pendingEdge,
       focus: this.focusSet(),
+      notes: this.options.notes !== false,
     });
     this.minimap?.render();
     this.emit('render', this.renderer.stats);
@@ -500,6 +544,18 @@ export class NodeEditor extends Emitter {
    */
   hitTest(wx, wy) {
     const { graph, viewport } = this;
+    // メモのバッジ（ノードより手前に描かれる）。当たったら中身のノード／コネクタとして返し、
+    // `note` を添えるので、既存の選択・ドラッグはそのまま動く
+    const noteHit = this.noteAt(wx, wy);
+    if (noteHit) {
+      if (noteHit.kind === 'node') {
+        const node = graph.nodes.get(noteHit.id);
+        if (node) return { type: 'node', node, header: true, note: noteHit };
+      } else {
+        const edge = graph.edges.get(noteHit.id);
+        if (edge) return { type: 'edge', edge, note: noteHit };
+      }
+    }
     // コネクタの削除アイコン（表示中のものだけ。ノードより手前に描かれるので最優先）
     const delEdge = this.edgeDeleteIconAt(wx, wy);
     if (delEdge) return { type: 'edge-delete', edge: delEdge };

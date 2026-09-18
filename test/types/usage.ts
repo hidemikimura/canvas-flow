@@ -12,6 +12,8 @@ import {
   normalizeEdgeType,
   normalizePortSpec,
   normalizeGoto,
+  normalizeNote,
+  rectsOverlap,
   edgeGeometryFor,
   geometryPoint,
   geometryPolyline,
@@ -34,6 +36,8 @@ import {
   type CanvasFlowData,
   type PortInfo,
   type GotoLink,
+  type Note,
+  type NoteBox,
 } from '../../types/core.js';
 import { CanvasFlowEditor, defaultContextMenuItems } from '../../types/lit.js';
 
@@ -367,6 +371,45 @@ el.setGoto('menu', ['price', 'howto']);
 console.log(el.gotoLinks().length, el.gotoSources('price').length);
 el.addEventListener('focus-change', (e) => console.log(e.detail.links.length));
 
+/* ---------- メモ（note） ---------- */
+
+const noteNode = graph.addNode({ x: 0, y: 0, title: 'メモ付き', note: '要確認' });
+const noteEdge = graph.addEdge({
+  source: noteNode.id,
+  sourcePort: 'out',
+  target: noteNode.id,
+  targetPort: 'in',
+  note: { text: '暫定', color: 'amber' },
+});
+console.log(normalizeNote('x')?.text, rectsOverlap({ x: 0, y: 0, w: 1, h: 1 }, { x: 0, y: 0, w: 2, h: 2 }));
+const theNote: Note | null = graph.noteOf(noteNode);
+console.log(theNote?.text, theNote?.color, graph.noteOf('missing'));
+graph.setNote(noteNode, { text: '直した', color: '#ff0000' });
+graph.setNote(noteNode.id, null);
+if (noteEdge) graph.setNote(noteEdge, 'コネクタのメモ');
+const all: Array<{ kind: 'node' | 'edge'; id: string; note: Note }> = graph.notes();
+console.log(all.length);
+const box = graph.placeNear(graph.nodeRect(noteNode), { w: 80, h: 18 }, {
+  placements: ['top-right', 'bottom'],
+  avoid: [{ x: 0, y: 0, w: 10, h: 10 }],
+  ignore: [noteNode.id],
+  gap: 6,
+  overlap: 0.4,
+});
+console.log(box.placement, box.free, box.x, box.w);
+editor.setNote(noteNode, 'エディタ経由');
+console.log(editor.noteOf(noteNode)?.text, editor.notes().length, editor.noteBoxes().length);
+const hitNote: NoteBox | null = editor.noteAt(10, 10);
+console.log(hitNote?.kind, hitNote?.note.text, hitNote?.placement);
+editor.on('note:hover', (d) => console.log(d.note ? d.note.text : 'なし'));
+editor.on('note:edit', (d) => console.log(d.kind, d.id, d.note?.text, d.screenRect.x));
+el.notes = false;
+el.setNote('n1', { text: 'x', color: 'blue' });
+console.log(el.noteOf('n1')?.text, el.notesList().length, el.editNote('n1'));
+el.addEventListener('note-hover', (e) => console.log('note' in e.detail ? e.detail.note?.text : ''));
+el.addEventListener('note-edit', (e) => { if (!e.detail.note) e.preventDefault(); });
+editor.setTheme({ note: { fill: '#000', maxWidth: 120, colors: { mine: '#123456' } } });
+
 /* ---------- 間違った使い方はエラーになること ---------- */
 
 // @ts-expect-error 未知の描画方法
@@ -405,3 +448,10 @@ el.contextMenuItems = [{ type: 'divider' }];
 graph.addNode({ x: 0, y: 0, goto: 42 });
 // @ts-expect-error to は必須
 graph.addNode({ x: 0, y: 0, goto: { label: 'なし' } });
+
+// @ts-expect-error note は文字列か {text, color?}
+graph.addNode({ x: 0, y: 0, note: 42 });
+// @ts-expect-error text は必須
+graph.addNode({ x: 0, y: 0, note: { color: 'red' } });
+// @ts-expect-error placements の値が不正
+graph.placeNear({ x: 0, y: 0, w: 1, h: 1 }, { w: 1, h: 1 }, { placements: ['somewhere'] });
