@@ -13,7 +13,7 @@ export { Graph, Viewport, Renderer, Minimap, defaultTheme, mergeTheme, uid };
 export { portKey, parsePortKey } from './graph.js';
 export { serialize, parse, validate, remapForMerge, FORMAT, FORMAT_VERSION } from './serializer.js';
 export { layeredLayout } from './layout.js';
-export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, EDGE_TYPES } from './graph.js';
+export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, normalizeGoto, EDGE_TYPES } from './graph.js';
 
 /**
  * フレームワーク非依存のノードエディタ本体。
@@ -268,6 +268,27 @@ export class NodeEditor extends Emitter {
     return this.graph.rootOf(nodeOrId);
   }
 
+  /* ---------- goto（ID 指定の遷移） ---------- */
+
+  /**
+   * `goto` を設定する（Undo 可）。`itemId` を渡すとその項目に設定する。
+   * 値は `'n1'` / `['n1','n2']` / `{to:'n1', label:'戻る'}` のいずれでも可。null で解除。
+   */
+  setGoto(nodeOrId, value, options) {
+    if (this.options.readOnly) return null;
+    return this.graph.setGoto(nodeOrId, value, options);
+  }
+
+  /** ノード（と項目）に書かれた goto の一覧。引数を省略するとグラフ全体 */
+  gotoLinks(nodeOrId) {
+    return this.graph.gotoLinks(nodeOrId);
+  }
+
+  /** このノードを goto で指しているリンク */
+  gotoSources(nodeOrId) {
+    return this.graph.gotoSources(nodeOrId);
+  }
+
   /* ---------- 強調表示（つながりのハイライト） ---------- */
 
   /**
@@ -314,6 +335,7 @@ export class NodeEditor extends Emitter {
     });
     // 選択中のコネクタも常に強調側に含める
     for (const id of this.selection.edges) set.edges.add(id);
+    if (!set.links) set.links = new Set();
     this._focusCache = set;
     return set;
   }
@@ -325,6 +347,7 @@ export class NodeEditor extends Emitter {
       direction: this.options.focusDirection,
       nodes: set ? [...set.nodes] : [],
       edges: set ? [...set.edges] : [],
+      links: set ? [...(set.links ?? [])] : [],
     };
   }
 
@@ -356,6 +379,7 @@ export class NodeEditor extends Emitter {
         : {
             nodes: new Set(additive ? [...this.selection.nodes, ...nodes] : nodes),
             edges: new Set(additive ? [...this.selection.edges, ...edges] : edges),
+            links: new Set(set.links ?? []),
           };
     try {
       this.select({ nodes, edges }, { additive });

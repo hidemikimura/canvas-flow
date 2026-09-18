@@ -49,6 +49,17 @@ export function layeredLayout(graph, nodeIds, options = {}) {
         inn.get(e.target).add(e.source);
       }
     }
+    // goto（ID 指定の遷移）もコネクタと同じ繋がりとして扱う（links: false で無効）
+    if (opt.links === false) continue;
+    const own = [id, ...graph.descendantIds(id)];
+    for (const from of own) {
+      for (const l of graph.gotoLinks(from)) {
+        const target = graph.rootOf(l.to);
+        if (!l.exists || !target || !idSet.has(target.id) || target.id === id) continue;
+        out.get(id).add(target.id);
+        inn.get(target.id).add(id);
+      }
+    }
   }
 
   // --- 連結成分 ---

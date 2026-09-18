@@ -11,6 +11,8 @@ import type {
   CanvasFlowInput,
   ChildNodeInput,
   ContextMenuDetail,
+  GotoLink,
+  GotoSpec,
   Graph,
   ConnectRules,
   Edge,
@@ -84,7 +86,7 @@ export interface CanvasFlowEditorEventMap {
   'edge-delete-icon': { edge: Edge };
   'edges-delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type-change': { type: EdgeType; edges: string[] | null };
-  'focus-change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[] };
+  'focus-change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[]; links: string[] };
   'focus-select': { mode: FocusMode; nodes: string[]; edges: string[] };
   /** 右クリック。`preventDefault()` すると内蔵メニューを出さない */
   'context-menu': ContextMenuDetail;
@@ -167,6 +169,12 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAt(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtPointer(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
   addNodeAtCenter(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
+  /** goto（ID 指定の遷移）を設定する（itemId を渡すとその項目に。null で解除） */
+  setGoto(nodeOrId: Node | string, value: GotoSpec | null, options?: { itemId?: string }): Node | NodeItem | null;
+  /** goto の一覧（引数を省略するとグラフ全体） */
+  gotoLinks(nodeOrId?: Node | string): GotoLink[];
+  /** このノードを goto で指しているリンク */
+  gotoSources(nodeOrId: Node | string): GotoLink[];
   /** 子ノードを追加する */
   addChild(parentId: string, child: ChildNodeInput, index?: number): Node | null;
   /** 子を親から外して独立させる（`removeChild` は DOM の予約名のため別名）。x / y を渡すとその位置に置く */

@@ -11,6 +11,7 @@ import {
   layeredLayout,
   normalizeEdgeType,
   normalizePortSpec,
+  normalizeGoto,
   edgeGeometryFor,
   geometryPoint,
   geometryPolyline,
@@ -32,6 +33,7 @@ import {
   type HitTestResult,
   type CanvasFlowData,
   type PortInfo,
+  type GotoLink,
 } from '../../types/core.js';
 import { CanvasFlowEditor, defaultContextMenuItems } from '../../types/lit.js';
 
@@ -334,6 +336,37 @@ el.closeContextMenu();
 el.openContextMenuAt(10, 20);
 el.openContextMenuAt(10, 20, { type: 'node' });
 
+/* ---------- goto（ID 指定の遷移） ---------- */
+
+const menu = graph.addNode({
+  id: 'menu',
+  x: 0,
+  y: 0,
+  title: 'メニュー',
+  goto: 'survey',
+  items: [
+    { id: 'm1', label: '料金', goto: 'price' },
+    { id: 'm2', label: '使い方', goto: { to: 'howto', label: '使い方へ' } },
+    { id: 'm3', label: 'その他', goto: ['faq', { to: 'agent' }] },
+  ],
+});
+console.log(menu.goto, normalizeGoto(menu.goto ?? null).length);
+const gl: GotoLink[] = graph.gotoLinks(menu);
+console.log(gl.map((l) => [l.key, l.from, l.itemId, l.to, l.label, l.exists]));
+console.log(graph.gotoLinks().length, graph.gotoSources('price').length, graph.gotoTargets(menu).length);
+graph.setGoto('menu', 'price', { itemId: 'm1' });
+graph.setGoto(menu, null);
+const anchor = graph.gotoAnchor(gl[0]);
+console.log(anchor?.a.x, anchor?.b.y);
+const reach2 = graph.connectedTo(['menu'], { direction: 'downstream', links: false });
+console.log(reach2.links.size);
+editor.setGoto('menu', { to: 'price', label: '→ 料金' });
+console.log(editor.gotoLinks('menu').length, editor.gotoSources('menu').length);
+editor.setTheme({ goto: { stroke: '#f00', dash: [2, 2], arrow: 12 } });
+el.setGoto('menu', ['price', 'howto']);
+console.log(el.gotoLinks().length, el.gotoSources('price').length);
+el.addEventListener('focus-change', (e) => console.log(e.detail.links.length));
+
 /* ---------- 間違った使い方はエラーになること ---------- */
 
 // @ts-expect-error 未知の描画方法
@@ -367,3 +400,8 @@ editor.selectFocused({ additive: 'yes' });
 el.contextMenuItems = [{ id: 'x', label: 'x', run: 'nope' }];
 // @ts-expect-error 区切り線の type は 'separator' だけ
 el.contextMenuItems = [{ type: 'divider' }];
+
+// @ts-expect-error goto は文字列 / 配列 / {to,label}
+graph.addNode({ x: 0, y: 0, goto: 42 });
+// @ts-expect-error to は必須
+graph.addNode({ x: 0, y: 0, goto: { label: 'なし' } });

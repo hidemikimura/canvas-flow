@@ -90,6 +90,28 @@ export type ConnectErrorReason =
  * ノードとコネクタ
  * ============================================================ */
 
+/**
+ * `goto`（コネクタを使わない ID 指定の遷移）に書ける値。
+ * `'n1'` / `['n1','n2']` / `{to:'n1', label:'戻る'}` / その配列。
+ */
+export type GotoTarget = string | { to: string; label?: string };
+export type GotoSpec = GotoTarget | GotoTarget[];
+
+/** `gotoLinks()` / `gotoSources()` が返す 1 本の遷移 */
+export interface GotoLink {
+  /** 安定した識別子（`goto:<from>:<itemId|->:<index>`） */
+  key: string;
+  /** 出発ノードの id */
+  from: string;
+  /** 項目に書かれている場合はその項目 id（ノード本体なら null） */
+  itemId: string | null;
+  /** 遷移先ノードの id */
+  to: string;
+  label: string | null;
+  /** 遷移先ノードが存在するか */
+  exists: boolean;
+}
+
 /** ノード内の項目（行） */
 export interface NodeItem {
   id: string;
@@ -101,6 +123,8 @@ export interface NodeItem {
   output?: PortSpec;
   /** false でこの項目のポートをまとめて非表示 */
   showPorts?: boolean;
+  /** コネクタを使わない ID 指定の遷移先（この項目が選ばれたときに進むノード） */
+  goto?: GotoSpec;
   data?: unknown;
 }
 
@@ -125,6 +149,8 @@ export interface Node {
   childs?: ChildNodeInput[];
   /** 親ノードの id（子ノードにのみ入る。読み取り専用。`setParent()` で変更する） */
   parent?: string;
+  /** コネクタを使わない ID 指定の遷移先 */
+  goto?: GotoSpec;
   /** `theme.node.*` の上書き */
   style?: Partial<NodeStyle>;
   data?: unknown;
@@ -223,6 +249,17 @@ export interface NodeStyle {
   shadow: string | null;
 }
 
+/** goto（ID 指定の遷移）の点線 */
+export interface GotoStyle {
+  stroke: string;
+  strokeWidth: number;
+  dash: number[];
+  arrow: number;
+  labelColor: string;
+  labelFont: string;
+  labelBg: string;
+}
+
 export interface PortStyle {
   radius: number;
   fill: string;
@@ -288,6 +325,7 @@ export interface Theme {
   node: NodeStyle;
   port: PortStyle;
   edge: EdgeStyle;
+  goto: GotoStyle;
   focus: FocusStyle;
   selectionBox: { fill: string; stroke: string };
   minimap: MinimapStyle;
@@ -389,6 +427,9 @@ export function pickTextFile(accept?: string): Promise<string | null>;
 export function uid(prefix?: string): string;
 export function portKey(itemId: string | null | undefined, dir: PortDir): PortKey;
 export function parsePortKey(key: string): { itemId: string | null; dir: PortDir } | null;
+/** `goto` の値を `[{to, label?}]` に正規化する */
+export function normalizeGoto(value: GotoSpec | null | undefined): Array<{ to: string; label?: string }>;
+
 export function normalizePortSpec(spec: PortSpec | undefined, defaultMax?: number): NormalizedPortSpec | null;
 export function withPortVisible(spec: PortSpec | undefined, visible: boolean): PortSpec;
 
@@ -735,11 +776,23 @@ export class Graph extends Emitter<GraphEvents> {
   removeEdge(id: string): boolean;
   removeEdges(ids: readonly string[]): void;
   edgesOf(nodeId: string): Edge[];
-  /** 起点から辿れるノードとコネクタを集める（強調表示・まとめ選択用） */
+  /** 起点から辿れるノード・コネクタ・goto を集める（強調表示・まとめ選択用） */
   connectedTo(
     startIds: Iterable<string>,
-    options?: { depth?: number; direction?: FocusDirection; includeStart?: boolean },
-  ): { nodes: Set<string>; edges: Set<string> };
+    options?: { depth?: number; direction?: FocusDirection; includeStart?: boolean; links?: boolean },
+  ): { nodes: Set<string>; edges: Set<string>; links: Set<string> };
+
+  /* goto（ID 指定の遷移） */
+  /** ノード（と項目）に書かれた goto の一覧。引数を省略するとグラフ全体 */
+  gotoLinks(nodeOrId?: Node | string): GotoLink[];
+  /** このノードを goto で指しているリンク */
+  gotoSources(nodeOrId: Node | string): GotoLink[];
+  /** goto の遷移先ノード（存在するものだけ） */
+  gotoTargets(nodeOrId: Node | string): Node[];
+  /** goto を設定する（itemId を渡すとその項目に。null で解除） */
+  setGoto(nodeOrId: Node | string, value: GotoSpec | null, options?: { itemId?: string }): Node | NodeItem | null;
+  /** 点線を描くための始点・終点 */
+  gotoAnchor(link: GotoLink): { a: Point; b: Point } | null;
 
   /* 問い合わせ */
   nodesInRect(rect: Rect): Node[];
@@ -844,6 +897,8 @@ export type FocusMode = 'off' | 'connected' | 'neighbors';
  */
 export type FocusDirection = 'lineage' | 'downstream' | 'upstream' | 'both';
 export interface FocusSet {
+  /** 辿った goto のキー */
+  links?: Set<string>;
   nodes: Set<string>;
   edges: Set<string>;
 }
@@ -910,7 +965,7 @@ export interface NodeEditorEvents {
   'edge:delete-icon': { edge: Edge };
   'edges:delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type:change': { type: EdgeType; edges: string[] | null };
-  'focus:change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[] };
+  'focus:change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[]; links: string[] };
   'focus:select': { mode: FocusMode; nodes: string[]; edges: string[] };
   'context:menu': ContextMenuDetail;
   'node:edit': { node: Node; rect: Rect; screenRect: Rect };
@@ -974,6 +1029,10 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   set focusMode(mode: FocusMode | boolean);
   /** 現在の強調対象。無効なとき・選択が空のときは null */
   focusSet(): FocusSet | null;
+  /** goto を設定する（Undo 可。readOnly では null） */
+  setGoto(nodeOrId: Node | string, value: GotoSpec | null, options?: { itemId?: string }): Node | NodeItem | null;
+  gotoLinks(nodeOrId?: Node | string): GotoLink[];
+  gotoSources(nodeOrId: Node | string): GotoLink[];
   /** 繋がっている要素を選択に加える */
   selectConnected(options?: { depth?: number; direction?: FocusDirection }): { nodes: string[]; edges: string[] } | null;
   /**

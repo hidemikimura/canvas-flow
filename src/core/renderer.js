@@ -1,4 +1,4 @@
-import { edgeGeometryFor, normalizeEdgeType } from './graph.js';
+import { edgeGeometryFor, geometryPoint, normalizeEdgeType } from './graph.js';
 
 /**
  * Canvas 2D レンダラー。
@@ -129,6 +129,9 @@ export class Renderer {
       }
       this._flushPorts();
     }
+
+    // --- goto（ID 指定の遷移）の点線。選択・強調されているものだけ ---
+    if (!lod) this._drawGotoLinks(state);
 
     // --- 追加描画（ノードより手前。分析表示やバッジなど） ---
     if (this.renderOverlay) {
@@ -347,6 +350,93 @@ export class Renderer {
   }
 
   /** コネクタ中央の × アイコン。画面上のサイズが一定になるよう zoom で割る */
+  /**
+   * goto（コネクタを使わない ID 指定の遷移）を点線の矢印で描く。
+   * 対象は「選択中のノードに出入りするリンク」と「強調表示で辿ったリンク」だけ。
+   */
+  _drawGotoLinks(state) {
+    const { ctx, graph, viewport: vp, theme } = this;
+    const st = theme.goto;
+    if (!st) return;
+    const focusLinks = state.focus?.links ?? null;
+    const picked = new Map();
+    const add = (link) => {
+      if (link.exists && !picked.has(link.key)) picked.set(link.key, link);
+    };
+    if (focusLinks && focusLinks.size) {
+      for (const id of state.focus.nodes) {
+        for (const l of graph.gotoLinks(id)) if (focusLinks.has(l.key)) add(l);
+      }
+    }
+    for (const id of state.selectedNodes) {
+      for (const l of graph.gotoLinks(id)) add(l);
+      for (const l of graph.gotoSources(id)) add(l);
+    }
+    if (!picked.size) return;
+
+    const type = normalizeEdgeType(graph.layout.edgeType);
+    ctx.save();
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = st.stroke;
+    ctx.lineWidth = (st.strokeWidth ?? 1.5) / vp.zoom;
+    ctx.setLineDash((st.dash ?? [6, 4]).map((v) => v / vp.zoom));
+    for (const link of picked.values()) {
+      const anchor = graph.gotoAnchor(link);
+      if (!anchor) continue;
+      const g = edgeGeometryFor(type, anchor.a, anchor.b, graph.layout, 1);
+      this._edgePath(g);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // 矢印とラベルは実線で
+    for (const link of picked.values()) {
+      const anchor = graph.gotoAnchor(link);
+      if (!anchor) continue;
+      this._drawGotoArrow(anchor.b, anchor.a, st);
+      if (link.label && vp.zoom >= 0.7) {
+        // 出発点寄りに置く。往復する 2 本があっても重ならない
+        const g = edgeGeometryFor(type, anchor.a, anchor.b, graph.layout, 1);
+        this._drawGotoLabel(link.label, geometryPoint(g, 0.32) ?? anchor.a, st);
+      }
+    }
+    ctx.restore();
+  }
+
+  /** 遷移先ノードの左端に三角の矢印を描く（tip に向けて from の側から） */
+  _drawGotoArrow(tip, from, st) {
+    const { ctx, viewport: vp } = this;
+    const size = (st.arrow ?? 9) / vp.zoom;
+    // 入口は常に左からなので、向きは固定（水平）にしておくと小さくても読みやすい
+    void from;
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(tip.x - size, tip.y - size * 0.45);
+    ctx.lineTo(tip.x - size, tip.y + size * 0.45);
+    ctx.closePath();
+    ctx.fillStyle = st.stroke;
+    ctx.fill();
+  }
+
+  _drawGotoLabel(text, at, st) {
+    const { ctx, viewport: vp } = this;
+    const { x, y } = at;
+    const scale = 1 / vp.zoom;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.font = st.labelFont;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 8;
+    ctx.fillStyle = st.labelBg;
+    this._roundRect(-w / 2, -8, w, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = st.labelColor;
+    ctx.fillText(text, 0, 0.5);
+    ctx.restore();
+  }
+
   _drawEdgeDeleteIcon(edge, hover) {
     const p = this.graph.edgePoint(edge);
     if (!p) return;

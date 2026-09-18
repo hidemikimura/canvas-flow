@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-18
+
+### 追加
+- **コネクタを使わない ID 指定の遷移（`goto`）**: ノードと項目に `goto`（`'n1'` / `['n1','n2']` / `{to:'n1', label:'戻る'}`）を書くと、コネクタを引かずに遷移を表せる。`connectedTo()` がコネクタと同じ向きのつながりとして辿るので **`focus-mode` の強調表示にも入り**（`{ links: false }` で除外）、`autoLayout()` も層の計算に使う。描画は普段なしで、選択時・強調表示で辿られたときだけ点線の矢印（`theme.goto`）。API: `setGoto(node, value, { itemId })` / `gotoLinks(node?)` / `gotoSources(node)` / `gotoTargets(node)` / `gotoAnchor(link)` と `normalizeGoto(value)`。JSON はそのまま保存・復元し、merge で ID が付け替わるときは遷移先も追従する
+
+### 変更
+- `connectedTo()` の戻り値に `links`（辿った goto のキー）が増え、既定で goto も辿るようになった（`{ links: false }` で従来どおりコネクタだけ）
+- `focus:change`（Lit: `focus-change`）の detail に `links` が増えた
+
 ## [0.3.0] - 2026-09-17
 
 ### 追加
@@ -53,7 +62,8 @@
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html`
 
-[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hidemikimura/canvas-flow/releases/tag/v0.1.0

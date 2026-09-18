@@ -1,4 +1,4 @@
-import { uid, parsePortKey } from './graph.js';
+import { uid, parsePortKey, normalizeGoto } from './graph.js';
 
 /**
  * JSON インポート／エクスポートのフォーマット処理。
@@ -152,6 +152,17 @@ export function validate(data) {
           return item;
         });
     }
+    // goto（ID 指定の遷移）は形だけ見て、解釈できないものは落とす
+    if (node.goto != null && !normalizeGoto(node.goto).length) {
+      warnings.push(`${path}: goto を解釈できないため無視しました`);
+      delete node.goto;
+    }
+    for (const it of node.items ?? []) {
+      if (it.goto != null && !normalizeGoto(it.goto).length) {
+        warnings.push(`${path}: 項目 "${it.id}" の goto を解釈できないため無視しました`);
+        delete it.goto;
+      }
+    }
     // 親から渡される座標は自動配置で上書きされるため、入力の parent は無視する
     delete node.parent;
     if (node.childs != null && !Array.isArray(node.childs)) {
@@ -248,6 +259,22 @@ export function remapForMerge(data, graph, { offset, forceNewIds = false } = {})
     if (forceNewIds || graph.edges.has(copy.id)) copy.id = uid('e');
     return copy;
   });
+  // goto の遷移先 ID も付け替える（付け替え対象に無い ID はそのまま＝外のノードを指したまま）
+  const remapGoto = (value) => {
+    if (value == null) return value;
+    const one = (v) => {
+      if (typeof v === 'string') return idMap.get(v) ?? v;
+      if (v && typeof v === 'object' && typeof v.to === 'string') return { ...v, to: idMap.get(v.to) ?? v.to };
+      return v;
+    };
+    return Array.isArray(value) ? value.map(one) : one(value);
+  };
+  const walkGoto = (node) => {
+    if (node.goto != null) node.goto = remapGoto(node.goto);
+    for (const it of node.items ?? []) if (it.goto != null) it.goto = remapGoto(it.goto);
+    if (Array.isArray(node.childs)) node.childs.forEach(walkGoto);
+  };
+  nodes.forEach(walkGoto);
   return { nodes, edges, idMap };
 }
 

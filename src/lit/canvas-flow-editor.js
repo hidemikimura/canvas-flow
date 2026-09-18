@@ -606,6 +606,21 @@ export class CanvasFlowEditor extends LitElement {
   addNodeAtCenter(spec, options) {
     return this.editor?.addNodeAtCenter(spec, options) ?? null;
   }
+  /* ---------- goto（ID 指定の遷移） ---------- */
+
+  /** goto を設定する。itemId を渡すとその項目に設定する（null で解除） */
+  setGoto(nodeOrId, value, options) {
+    return this.editor?.setGoto(nodeOrId, value, options) ?? null;
+  }
+  /** goto の一覧（引数を省略するとグラフ全体） */
+  gotoLinks(nodeOrId) {
+    return this.editor?.gotoLinks(nodeOrId) ?? [];
+  }
+  /** このノードを goto で指しているリンク */
+  gotoSources(nodeOrId) {
+    return this.editor?.gotoSources(nodeOrId) ?? [];
+  }
+
   /* ---------- 子ノード ---------- */
 
   /** 子ノードを追加する */

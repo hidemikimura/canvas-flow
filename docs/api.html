@@ -102,7 +102,7 @@
 <div class="layout">
 <nav class="side" id="nav">
   <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
-  <div class="version">NodeEditor API 仕様書 · v0.3.0</div>
+  <div class="version">NodeEditor API 仕様書 · v0.4.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
@@ -123,6 +123,7 @@
     <li><a href="#m-edit">編集コマンド</a></li>
     <li><a href="#m-add">ノード追加</a></li>
     <li><a href="#m-childs">子ノード</a></li>
+    <li><a href="#m-goto">goto（ID 指定の遷移）</a></li>
     <li><a href="#m-context">右クリックメニュー</a></li>
     <li><a href="#m-layout">自動整列</a></li>
     <li><a href="#m-history">Undo / Redo</a></li>
@@ -517,6 +518,39 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
 <p>子ノードの配列（表示順）と、一番外側の親（自分が子でなければ自分自身）。引数はノードでも ID でも渡せます。さらに細かい問い合わせは <a href="#graph">Graph</a> 側の <code>isChild</code> / <code>parentOf</code> / <code>rootOf</code> / <code>depthOf</code> / <code>descendantIds</code> / <code>rootNodes</code> を使います。</p>
 </section>
 
+<h2 id="m-goto">goto（ID 指定の遷移）</h2>
+<section class="api" data-name="goto gotoLinks gotoSources gotoTargets setGoto gotoAnchor 遷移 ノードID 指定 点線 シナリオ">
+<p>「この選択肢を選んだらこのノードへ」という遷移を、コネクタを引かずにノード ID で指定できます。ノードにも項目にも <code>goto</code> を書けて、コネクタと混ぜて使えます。</p>
+<pre><code>graph.addNode({
+  id: 'menu', title: 'メニュー', x: 300, y: 0, input: true,
+  items: [
+    { id: 'm1', label: '料金を知りたい', goto: 'price' },                          // ID だけ
+    { id: 'm2', label: '使い方を知りたい', goto: { to: 'howto', label: '使い方' } },  // ラベル付き
+    { id: 'm3', label: 'その他', goto: ['faq', 'agent'] },                         // 複数
+  ],
+  goto: 'survey',   // ノード本体に書くと「この画面のあと進む先」
+});</code></pre>
+<table>
+  <tr><th>扱い</th><th>内容</th></tr>
+  <tr><td>強調表示</td><td><code>connectedTo()</code> がコネクタと同じ向きのつながりとして辿るので、<a href="#m-appearance">focusMode</a> でも goto 先が強調される（<code>{ links: false }</code> で除外）</td></tr>
+  <tr><td>自動整列</td><td><code>autoLayout()</code> も層の計算に使う（<code>{ links: false }</code> で除外）</td></tr>
+  <tr><td>描画</td><td>普段は描かず、そのノードを選択したとき・強調表示で辿られたときだけ点線の矢印で表示（<code>theme.goto</code>）</td></tr>
+  <tr><td>JSON</td><td>そのまま保存・復元。merge / <code>insertJSON</code> で ID が付け替わるときは遷移先も付け替わる</td></tr>
+  <tr><td>存在しない ID</td><td>エラーにならず <code>exists: false</code> として辿られない</td></tr>
+</table>
+<h3><span class="tag type">type</span><code>GotoSpec</code></h3>
+<p><code>'n1'</code> / <code>['n1','n2']</code> / <code>{ to: 'n1', label?: string }</code> / その配列。<code>normalizeGoto(value)</code> で <code>[{to, label?}]</code> に正規化できます。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setGoto(nodeOrId, value, { itemId })</code></h3>
+<p>設定・解除（<code>null</code> で解除）。<code>itemId</code> を渡すとその項目に設定します。内部では <code>updateNode</code> / <code>updateItem</code> なので 1 回の Undo で戻ります。</p>
+<h3><span class="tag method">method</span><code>gotoLinks(nodeOrId?) → GotoLink[]</code> / <code>gotoSources(nodeOrId) → GotoLink[]</code> / <code>gotoTargets(nodeOrId) → Node[]</code></h3>
+<p><code>gotoLinks</code> は出ていく遷移（引数を省略するとグラフ全体）、<code>gotoSources</code> は「このノードを指しているリンク」、<code>gotoTargets</code> は存在する遷移先ノードです。<code>GotoLink</code> は <code>{ key, from, itemId, to, label, exists }</code>（<code>key</code> は <code>goto:&lt;from&gt;:&lt;itemId|-&gt;:&lt;index&gt;</code> という安定した識別子で、強調表示の <code>links</code> に入るのもこのキー）。</p>
+<pre><code>editor.setGoto('menu', 'price', { itemId: 'm1' });
+editor.gotoLinks('menu');     // → [{ key, from, itemId: 'm1', to: 'price', label: null, exists: true }, ...]
+editor.gotoSources('price');  // → price へ入ってくるリンク
+editor.on('focus:change', ({ links }) =&gt; console.log('辿った goto', links));</code></pre>
+<div class="note">点線の始点・終点は <code>graph.gotoAnchor(link)</code> で取れます（始点は項目の行、終点は遷移先ノードのヘッダ）。独自に描きたいときは <a href="#m-appearance">overlayRenderer</a> と組み合わせてください。</div>
+</section>
+
 <h2 id="m-context">右クリックメニュー</h2>
 <section class="api" data-name="contextmenu context-menu 右クリック メニュー contextMenuItems closeContextMenu openContextMenuAt defaultContextMenuItems">
 <p>右クリックすると、対象（ノード／項目／コネクタ／空白）に応じたメニューが出ます。ブラウザ既定のメニューは常に抑制されます。未選択のものを右クリックした場合はそれを選択してからメニューを出し、選択中のノードを右クリックしたときは複数選択を保ちます（まとめて複製・削除できる）。<code>readOnly</code> のときと <code>context-menu="false"</code> のときはメニューを出しません（イベントだけ発火）。</p>
@@ -683,7 +717,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>import</code> / <code>export</code></td><td><code>import</code> / <code>export</code></td><td><code>{ mode, nodes, edges, warnings }</code> / <code>{ data, selectionOnly }</code></td><td>JSON 入出力</td></tr>
   <tr><td><code>layout</code></td><td><code>layout</code></td><td><code>{ nodes: string[] }</code></td><td>自動整列を適用した</td></tr>
   <tr><td><code>edge-type:change</code></td><td><code>edge-type-change</code></td><td><code>{ type, edges: string[] | null }</code></td><td>コネクタの描画方法を変えた（<code>edges</code> が null なら全体の既定）</td></tr>
-  <tr><td><code>focus:change</code></td><td><code>focus-change</code></td><td><code>{ mode, direction, nodes: string[], edges: string[] }</code></td><td>強調表示の対象が変わった</td></tr>
+  <tr><td><code>focus:change</code></td><td><code>focus-change</code></td><td><code>{ mode, direction, nodes: string[], edges: string[], links: string[] }</code></td><td>強調表示の対象が変わった（<code>links</code> は辿った <a href="#m-goto">goto</a> のキー）</td></tr>
   <tr><td><code>focus:select</code></td><td><code>focus-select</code></td><td><code>{ mode, nodes: string[], edges: string[] }</code></td><td>強調表示されている要素を選択した（<code>selectFocused</code>）</td></tr>
   <tr><td><code>context:menu</code></td><td><code>context-menu</code></td><td><code>{ type, node, item, edge, port, x, y, screen, client, selection, originalEvent }</code></td><td>右クリック。Lit 側の <code>context-menu</code> は <code>preventDefault()</code> で内蔵メニューを抑止できる</td></tr>
   <tr><td>—</td><td><code>context-menu-select</code></td><td><code>{ id, item, target }</code></td><td>右クリックメニューの項目を実行した（Lit のみ）</td></tr>
@@ -725,6 +759,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>items</code></td><td>NodeItem[]</td><td>項目。高さは <code>headerHeight + items.length × itemHeight + padding</code></td></tr>
   <tr><td><code>childs</code></td><td>Node[]?</td><td><a href="#m-childs">子ノード</a>。項目の下に縦に並ぶ。位置と幅は親が自動計算（子の <code>x</code> / <code>y</code> / <code>width</code> は無視される）。何段でも入れ子にできる</td></tr>
   <tr><td><code>parent</code></td><td>string?</td><td>子ノードにだけ入る親の ID（読み取り専用。変更は <code>setParent()</code>）</td></tr>
+  <tr><td><code>goto</code></td><td><a href="#m-goto">GotoSpec</a>?</td><td>コネクタを使わない ID 指定の遷移先。<code>'n1'</code> / <code>['n1','n2']</code> / <code>{to:'n1', label:'戻る'}</code></td></tr>
   <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> で全ポートの丸を非表示</td></tr>
   <tr><td><code>style</code></td><td>object?</td><td><code>theme.node.*</code> の上書き</td></tr>
   <tr><td><code>data</code></td><td>any?</td><td>任意データ（そのまま JSON に保存）</td></tr>
@@ -737,6 +772,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>value</code></td><td>string?</td><td>右側に表示。あればダブルクリックで値を、無ければラベルを編集</td></tr>
   <tr><td><code>input</code> / <code>output</code></td><td>PortSpec</td><td>行の左／右のポート</td></tr>
   <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> でこの項目のポートを非表示</td></tr>
+  <tr><td><code>goto</code></td><td><a href="#m-goto">GotoSpec</a>?</td><td>この項目が選ばれたときの遷移先（ID 指定）</td></tr>
 </table>
 </section>
 
@@ -808,7 +844,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>canConnect(...) → boolean</code> / <code>connectError(...) → string | null</code></td><td>接続可否。理由: <code>same-node</code> / <code>invalid-port</code> / <code>missing-port</code> / <code>duplicate</code> / <code>source-full</code> / <code>target-full</code></td></tr>
   <tr><td><code>updateEdge(id, patch)</code> / <code>removeEdge(id)</code> / <code>removeEdges(ids)</code></td><td>コネクタの更新・削除</td></tr>
   <tr><td><code>edgesOf(nodeId) → Edge[]</code></td><td>ノードに接続しているコネクタ</td></tr>
-  <tr><td><code>connectedTo(startIds, { depth, direction, includeStart }) → { nodes: Set, edges: Set }</code></td><td>起点から辿れるノードとコネクタ（強調表示・まとめ選択用）。<code>direction</code> は <code>'lineage' | 'downstream' | 'upstream' | 'both'</code>（この API の既定は <code>'both'</code>）</td></tr>
+  <tr><td><code>connectedTo(startIds, { depth, direction, includeStart, links }) → { nodes: Set, edges: Set, links: Set }</code></td><td>起点から辿れるノード・コネクタ・<a href="#m-goto">goto</a>（強調表示・まとめ選択用）。<code>direction</code> は <code>'lineage' | 'downstream' | 'upstream' | 'both'</code>（この API の既定は <code>'both'</code>）。<code>links: false</code> で goto を辿らない</td></tr>
+  <tr><td><code>gotoLinks(node?)</code> / <code>gotoSources(node)</code> / <code>gotoTargets(node)</code> / <code>setGoto(node, value, { itemId })</code> / <code>gotoAnchor(link)</code></td><td><a href="#m-goto">goto</a> の一覧・逆引き・設定・点線の始点終点</td></tr>
   <tr><td><code>portSpec(nodeId, key)</code> / <code>portEdges(nodeId, key)</code> / <code>portCapacity(nodeId, key) → { count, max, full }</code></td><td>ポートの定義・接続・残量</td></tr>
   <tr><td><code>portVisible(nodeId, key)</code> / <code>setPortVisible(...)</code> / <code>setPortsVisible(...)</code></td><td>ポートの表示状態</td></tr>
   <tr><td><code>nodeRect(node)</code> / <code>nodeWidth(node)</code> / <code>nodeHeight(node)</code></td><td>矩形・寸法（高さはヘッダ＋項目＋子ノード）</td></tr>
@@ -841,6 +878,8 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
           curvature: 0.5,   // bezier の曲がり具合
           stepOffset: 24,   // step の水平突き出し量
           deleteIcon: { radius: 9, fill, stroke, color, hoverFill, hoverColor } },
+  goto: { stroke: '#94a3b8', strokeWidth: 1.5, dash: [6, 4], arrow: 9,   // ID 指定の遷移の点線
+          labelColor, labelFont, labelBg },
   focus: { dimOpacity: 0.12, dimOpacityLod: 0.25, edgeStroke: null, edgeWidth: null },
   selectionBox: { fill, stroke },
   minimap: { background, border, node, selectedNode, viewportFill, viewportStroke },
@@ -868,7 +907,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
   <tr><td><code>context-menu</code></td><td>有効</td><td><code>"false"</code> で内蔵の右クリックメニューを無効（<code>read-only</code> では出ない）。項目は <code>contextMenuItems</code> で差し替え</td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -897,7 +936,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.3.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.4.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

@@ -71,6 +71,11 @@ function generate(n) {
       items,
       ...(childs ? { childs } : null),
     });
+    // 7 個ごとに 1 つ、コネクタを使わない ID 指定の遷移（goto）を持たせる。
+    // 選択・強調したときだけ点線の矢印で描かれる
+    if (i % 7 === 3 && i + 2 < n) {
+      items[0].goto = { to: `n${i + 2}`, label: 'goto' };
+    }
     // 子ノードは外のノードとも自由に接続できる
     if (childs && i > 0 && cluster0(i) === cluster0(i - 1)) {
       edges.push({ id: `e${i}c`, source: `n${i}c0`, sourcePort: 'out', target: `n${i - 1}`, targetPort: 'in' });

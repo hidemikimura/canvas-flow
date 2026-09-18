@@ -69,6 +69,25 @@ export function normalizePortSpec(spec, defaultMax = Infinity) {
   return null;
 }
 
+/**
+ * `goto`（コネクタを使わない ID 指定の遷移）の値を `[{to, label?}]` に正規化する。
+ * 受け付ける形: `'n1'` / `['n1','n2']` / `{to:'n1', label:'戻る'}` / その配列。
+ * 空文字・不正な値は無視する。
+ */
+export function normalizeGoto(value) {
+  if (value == null || value === false) return [];
+  const list = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (const v of list) {
+    if (typeof v === 'string') {
+      if (v) out.push({ to: v });
+    } else if (v && typeof v === 'object' && typeof v.to === 'string' && v.to) {
+      out.push(v.label == null ? { to: v.to } : { to: v.to, label: String(v.label) });
+    }
+  }
+  return out;
+}
+
 /** PortSpec に visible を設定した新しい値を返す（true / 数値はオブジェクトに変換） */
 export function withPortVisible(spec, visible) {
   if (spec == null || spec === false) return spec;
@@ -203,6 +222,8 @@ export class Graph extends Emitter {
     this.edges = new Map();
     /** ノード ID → 接続エッジ ID */
     this._adjacency = new Map();
+    /** goto の逆引き（遷移先 ID → リンク）。ノードの内容が変わったら破棄する */
+    this._gotoIndex = null;
     /** 親ノード ID → 子ノード ID の並び（表示順） */
     this._children = new Map();
     this.nodeIndex = new SpatialIndex(cellSize);
@@ -596,6 +617,7 @@ export class Graph extends Emitter {
     }
     this.nodes.set(node.id, node);
     this._adjacency.set(node.id, new Set());
+    this._invalidateGoto();
     if (node.parent) {
       const list = this._children.get(node.parent) ?? [];
       if (index == null || index < 0 || index >= list.length) list.push(node.id);
@@ -839,6 +861,7 @@ export class Graph extends Emitter {
     this._children.delete(id);
     this.nodes.delete(id);
     this._adjacency.delete(id);
+    this._invalidateGoto();
     this.nodeIndex.remove(id);
     this.emit('node:remove', node);
     this._op(() => ({ type: 'node:remove', node: structuredClone(node), parent: node.parent ?? null }));
@@ -853,6 +876,7 @@ export class Graph extends Emitter {
   }
 
   _reindexNode(node) {
+    this._invalidateGoto();
     this.nodeIndex.update(node.id, this.nodeRect(node));
     for (const eid of this._adjacency.get(node.id)) this._reindexEdge(this.edges.get(eid));
     // 高さ・幅が変わると親の枠と兄弟の位置も動く（親子が絡まないノードでは何もしない）
@@ -1037,19 +1061,21 @@ export class Graph extends Emitter {
    * @param {boolean} [options.includeStart=true] 起点自身を含めるか
    * @returns {{nodes: Set<string>, edges: Set<string>}}
    */
-  connectedTo(startIds, { depth = Infinity, direction = 'both', includeStart = true } = {}) {
+  connectedTo(startIds, { depth = Infinity, direction = 'both', includeStart = true, links = true } = {}) {
     if (direction === 'lineage') {
       // 上流をたどってから、その全員の下流を集める。
       // 「自分の上流ではないのに、途中のノードへ合流しているだけ」のノードは入らない
-      const up = this.connectedTo(startIds, { depth, direction: 'upstream' });
-      const out = this.connectedTo(up.nodes, { depth, direction: 'downstream' });
+      const up = this.connectedTo(startIds, { depth, direction: 'upstream', links });
+      const out = this.connectedTo(up.nodes, { depth, direction: 'downstream', links });
       for (const id of up.nodes) out.nodes.add(id);
       for (const id of up.edges) out.edges.add(id);
+      for (const key of up.links) out.links.add(key);
       if (!includeStart) for (const id of startIds) out.nodes.delete(id);
       return out;
     }
     const nodes = new Set();
     const edges = new Set();
+    const linkKeys = new Set();
     let frontier = [];
     for (const id of startIds) {
       if (!this.nodes.has(id)) continue;
@@ -1058,6 +1084,11 @@ export class Graph extends Emitter {
     }
     for (let d = 0; d < depth && frontier.length; d++) {
       const next = [];
+      const step = (other) => {
+        if (nodes.has(other)) return;
+        nodes.add(other);
+        next.push(other);
+      };
       for (const id of frontier) {
         for (const eid of this._adjacency.get(id) ?? []) {
           const edge = this.edges.get(eid);
@@ -1066,17 +1097,126 @@ export class Graph extends Emitter {
           if (direction === 'downstream' && edge.source !== id) continue;
           if (direction === 'upstream' && edge.target !== id) continue;
           edges.add(eid);
-          const other = edge.source === id ? edge.target : edge.source;
-          if (!nodes.has(other)) {
-            nodes.add(other);
-            next.push(other);
+          step(edge.source === id ? edge.target : edge.source);
+        }
+        // goto（ID 指定の遷移）もコネクタと同じ向きの繋がりとして辿る
+        if (!links) continue;
+        if (direction !== 'upstream') {
+          for (const l of this.gotoLinks(id)) {
+            if (!l.exists) continue;
+            linkKeys.add(l.key);
+            step(l.to);
+          }
+        }
+        if (direction !== 'downstream') {
+          for (const l of this.gotoSources(id)) {
+            linkKeys.add(l.key);
+            step(l.from);
           }
         }
       }
       frontier = next;
     }
     if (!includeStart) for (const id of startIds) nodes.delete(id);
-    return { nodes, edges };
+    return { nodes, edges, links: linkKeys };
+  }
+
+  /* ---------- goto（コネクタを使わない ID 指定の遷移） ---------- */
+
+  /**
+   * ノード（と項目）に書かれた `goto` を一覧にする。引数を省略するとグラフ全体。
+   * @param {object|string} [nodeOrId]
+   * @returns {Array<{key:string, from:string, itemId:string|null, to:string, label:string|null, exists:boolean}>}
+   */
+  gotoLinks(nodeOrId) {
+    if (nodeOrId == null) {
+      const all = [];
+      for (const n of this.nodes.values()) all.push(...this.gotoLinks(n));
+      return all;
+    }
+    const node = typeof nodeOrId === 'string' ? this.nodes.get(nodeOrId) : nodeOrId;
+    if (!node) return [];
+    const out = [];
+    const push = (value, itemId) => {
+      normalizeGoto(value).forEach((g, i) => {
+        out.push({
+          // 同じノード・同じ項目の中の並び順で決まる安定した識別子
+          key: `goto:${node.id}:${itemId ?? '-'}:${i}`,
+          from: node.id,
+          itemId: itemId ?? null,
+          to: g.to,
+          label: g.label ?? null,
+          exists: this.nodes.has(g.to),
+        });
+      });
+    };
+    push(node.goto, null);
+    for (const it of node.items ?? []) push(it.goto, it.id);
+    return out;
+  }
+
+  /** このノードを `goto` で指しているリンク（＝入ってくる側） */
+  gotoSources(nodeOrId) {
+    const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
+    if (!id) return [];
+    return [...(this._gotoMap().get(id) ?? [])];
+  }
+
+  /** `goto` の遷移先ノード（存在するものだけ） */
+  gotoTargets(nodeOrId) {
+    const out = [];
+    for (const l of this.gotoLinks(nodeOrId)) {
+      const n = this.nodes.get(l.to);
+      if (n) out.push(n);
+    }
+    return out;
+  }
+
+  /**
+   * `goto` を設定する（Undo 可）。`itemId` を渡すとその項目に設定する。
+   * 値は文字列 / 配列 / `{to, label}` のいずれでも可。null で解除。
+   */
+  setGoto(nodeOrId, value, { itemId } = {}) {
+    const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
+    if (!id || !this.nodes.has(id)) return null;
+    const next = value == null ? undefined : value;
+    return itemId ? this.updateItem(id, itemId, { goto: next }) : this.updateNode(id, { goto: next });
+  }
+
+  /** 点線を描くための始点・終点（始点は項目行、終点は遷移先ノードのヘッダ） */
+  gotoAnchor(link) {
+    const from = this.nodes.get(link.from);
+    const to = this.nodes.get(link.to);
+    if (!from || !to) return null;
+    const { headerHeight } = this.layout;
+    let y1 = from.y + headerHeight / 2;
+    if (link.itemId) {
+      const r = this.itemRect(from, link.itemId);
+      if (r) y1 = r.y + r.h / 2;
+    }
+    return {
+      a: { x: this.portEdgeX(from).out, y: y1 },
+      b: { x: this.portEdgeX(to).in, y: to.y + headerHeight / 2 },
+    };
+  }
+
+  _gotoMap() {
+    if (this._gotoIndex) return this._gotoIndex;
+    const map = new Map();
+    for (const node of this.nodes.values()) {
+      for (const link of this.gotoLinks(node)) {
+        const list = map.get(link.to);
+        if (list) list.push(link);
+        else map.set(link.to, [link]);
+      }
+    }
+    this._gotoIndex = map;
+    return map;
+  }
+
+  /** ノードの内容が変わったら逆引きを作り直す（移動だけのときは呼ばない） */
+  _invalidateGoto() {
+    this._gotoIndex = null;
   }
 
   edgesOf(nodeId) {
@@ -1231,6 +1371,7 @@ export class Graph extends Emitter {
     this.nodes.clear();
     this.edges.clear();
     this._adjacency.clear();
+    this._invalidateGoto();
     this._children.clear();
     this.nodeIndex.clear();
     this.edgeIndex.clear();

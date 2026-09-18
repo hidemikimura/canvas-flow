@@ -61,6 +61,16 @@ export const defaultTheme = {
       hoverColor: '#ffffff',
     },
   },
+  /** goto（ID 指定の遷移）の点線。選択・強調されているときだけ描く */
+  goto: {
+    stroke: '#94a3b8',
+    strokeWidth: 1.5,
+    dash: [6, 4],
+    arrow: 9,
+    labelColor: '#64748b',
+    labelFont: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
+    labelBg: 'rgba(255,255,255,0.85)',
+  },
   /**
    * 強調表示（focusMode）。選択ノードと繋がっていない要素を薄くする。
    *  - dimOpacity: 薄くする側の不透明度
