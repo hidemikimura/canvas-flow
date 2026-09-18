@@ -30,7 +30,7 @@
       <label title="value 入力は 1 本、threshold 入力は 2 本、ヘッダ出力は 3 本まで"><input id="onfull" type="checkbox" /> 満杯ポートへの接続は付け替え</label>
       <label>移動単位 <select id="snap"><option value="0">なし</option><option value="8">8px</option><option value="16">16px</option><option value="32">32px（グリッド）</option><option value="50">50px</option></select></label>
       <label>コネクタ <select id="edge-type"><option value="bezier">曲線</option><option value="straight">直線</option><option value="step">直角</option></select></label>
-      <label>強調 <select id="focus"><option value="off">なし</option><option value="connected:lineage">同じ流れ</option><option value="connected:downstream">進める先だけ</option><option value="connected:upstream">元をたどる</option><option value="connected:both">前後すべて</option><option value="neighbors:lineage">1 段だけ</option></select></label>
+      <label>強調 <select id="focus"><option value="off">なし</option><option value="connected:lineage">同じ道筋（祖先と子孫）</option><option value="connected:downstream">進める先だけ</option><option value="connected:upstream">元をたどる</option><option value="connected:both">前後すべて</option><option value="neighbors:lineage">1 段だけ</option></select></label>
       <span id="stats"></span>
       <span style="margin-left:auto;color:#64748b">
         ホイール: ズーム / Shift+ホイール: パン / Space+ドラッグ: パン / ダブルクリック: 編集 / N: マウス位置にノード追加 / Ctrl+D: 複製 / Delete: 削除 / Ctrl+Shift+A: 強調を選択 / 右クリック: メニュー

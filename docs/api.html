@@ -102,7 +102,7 @@
 <div class="layout">
 <nav class="side" id="nav">
   <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
-  <div class="version">NodeEditor API 仕様書 · v0.4.0</div>
+  <div class="version">NodeEditor API 仕様書 · v0.5.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
@@ -240,7 +240,7 @@ import '@hidemikimura/canvas-flow/lit';</code></pre>
   <tr><td><code>moveSnap</code></td><td>number (px)</td><td>0（無効）</td><td>ノードの移動単位。ドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う</td></tr>
   <tr><td><code>focusMode</code></td><td><code>'off' | 'connected' | 'neighbors'</code></td><td><code>'off'</code></td><td>選択ノードと同じ流れにある要素を強調し、他を薄く描く</td></tr>
   <tr><td><code>focusDepth</code></td><td>number</td><td>1</td><td><code>'neighbors'</code> のときに何段まで辿るか</td></tr>
-  <tr><td><code>focusDirection</code></td><td><code>'lineage' | 'downstream' | 'upstream' | 'both'</code></td><td><code>'lineage'</code></td><td>辿る向き。既定は上流をたどってから流れる先すべて</td></tr>
+  <tr><td><code>focusDirection</code></td><td><code>'lineage' | 'downstream' | 'upstream' | 'both'</code></td><td><code>'lineage'</code></td><td>辿る向き。既定は起点の祖先と子孫だけ（起点を通る道筋）</td></tr>
   <tr><td><code>theme.edge.type</code></td><td><code>'bezier' | 'straight' | 'step'</code></td><td><code>'bezier'</code></td><td>コネクタの描画方法の既定（<code>theme</code> オプション経由。後から <code>setEdgeType()</code> で変更可）</td></tr>
 </table>
 <p class="muted">オプションは <code>editor.options</code> に保持され、<code>wheelMode</code> / <code>dragMode</code> / <code>readOnly</code> / <code>edgeDeleteIcon</code> は実行中に書き換えても次の操作から反映されます。</p>
@@ -304,14 +304,15 @@ editor.graph.addEdge({ source: 'a', sourcePort: 'out', target: 'b', targetPort: 
 </table>
 <table>
   <tr><th>direction</th><th>辿る向き</th></tr>
-  <tr><td><code>'lineage'</code>（既定）</td><td>先に上流をたどり、そこから流れる先すべて</td></tr>
+  <tr><td><code>'lineage'</code>（既定）</td><td>起点の祖先（上流）と子孫（下流）だけ＝起点を通る道筋</td></tr>
   <tr><td><code>'downstream'</code></td><td>出力ポートから進める先だけ</td></tr>
   <tr><td><code>'upstream'</code></td><td>入力ポートへ入ってくる側だけ</td></tr>
   <tr><td><code>'both'</code></td><td>向きを問わず繋がっているもの全部</td></tr>
 </table>
 <div class="note"><strong>'lineage' の考え方</strong><br />
-<code>A → B → C</code> / <code>A → E</code> / <code>D → E</code> / <code>E → F</code> というグラフで <strong>B</strong> を選ぶと、
-上流の A と、A から流れる先の E・F、B の先の C が強調されます。D は E に合流しているだけで B とは別の系統なので薄いままです。</div>
+「その要素を通る道筋」だけを強調します。起点まで遡れるノード（祖先）と起点から進めるノード（子孫）が対象で、<strong>祖先から分かれた別の枝や、子孫へ合流してくる別の枝は入りません</strong>。<br />
+<code>A → B → C</code> / <code>A → E</code> / <code>D → E</code> / <code>E → F</code> というグラフなら、<strong>B</strong> を選ぶと A・B・C（E・F・D は薄い）、<strong>E</strong> を選ぶと A・D・E・F（B・C は薄い）、<strong>A</strong> を選ぶと A・B・C・E・F（D は薄い）。<br />
+<a href="#m-goto">goto</a> でも同じで、<code>A → B → C</code> に加えて A が goto で D を指していても、C を選んだときに D は強調されません。前後の枝まで見たいときは <code>'both'</code> を使ってください。</div>
 <pre><code>editor.setFocusMode('connected');                              // 同じ流れ全部（既定）
 editor.setFocusMode('neighbors', { depth: 2 });                // 2 段まで
 editor.setFocusMode('connected', { direction: 'downstream' }); // 進める先だけ
@@ -936,7 +937,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.4.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.5.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

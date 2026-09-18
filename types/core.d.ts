@@ -849,7 +849,7 @@ export interface NodeEditorOptions {
   focusMode?: FocusMode | boolean;
   /** 'neighbors' のときに何段まで辿るか（既定 1） */
   focusDepth?: number;
-  /** 辿る向き（既定 'lineage' = 上流をたどってから流れる先すべて） */
+  /** 辿る向き（既定 'lineage' = 起点の祖先と子孫だけ） */
   focusDirection?: FocusDirection;
 }
 
@@ -889,7 +889,8 @@ export type EdgeDeleteScope = 'between' | 'attached' | 'selected';
 export type FocusMode = 'off' | 'connected' | 'neighbors';
 /**
  * 強調表示で辿る向き。
- *  - 'lineage'（既定）… 先に上流をたどり、そこから流れる先すべて（同じ流れにあるもの）。
+ *  - 'lineage'（既定）… 起点の祖先（上流）と子孫（下流）だけ＝起点を通る道筋。
+ *                      祖先から分かれた別の枝や、子孫へ合流してくる別の枝は入らない。
  *    途中のノードへ合流しているだけの別系統は入らない
  *  - 'downstream' … 選択ノードから進める先だけ
  *  - 'upstream' … 選択ノードへ入ってくる側だけ
@@ -1023,7 +1024,7 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   setSelectedEdgeType(type: EdgeType | string): void;
 
   /* 強調表示 */
-  /** 'connected' は辿れる範囲すべて、'neighbors' は `focusDepth` 段まで。既定は 'lineage'（上流 → そこから流れる先） */
+  /** 'connected' は辿れる範囲すべて、'neighbors' は `focusDepth` 段まで。既定は 'lineage'（起点の祖先と子孫） */
   setFocusMode(mode: FocusMode | boolean, options?: { depth?: number; direction?: FocusDirection }): void;
   get focusMode(): FocusMode;
   set focusMode(mode: FocusMode | boolean);

@@ -136,7 +136,7 @@
   <label title="選択したノードと同じ流れにある要素だけをはっきり描き、他を薄くします">強調
     <select id="focus">
       <option value="off">なし</option>
-      <option value="connected:lineage">同じ流れ</option>
+      <option value="connected:lineage">同じ道筋（祖先と子孫）</option>
       <option value="connected:downstream">進める先だけ</option>
       <option value="connected:upstream">元をたどる</option>
       <option value="connected:both">前後すべて</option>
@@ -183,7 +183,7 @@
 &lt;/script&gt;
 
 &lt;canvas-flow-editor minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;</code></pre>
-      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.4.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
+      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.5.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
     </div>
     <div>
       <h3>操作</h3>
@@ -198,7 +198,7 @@
         コネクタにマウスを乗せると中央に削除アイコン
       </p>
       <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
-      <p>「強調」を選んでからノードをクリックすると、同じ流れにある要素だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
+      <p>「強調」を選んでからノードをクリックすると、そのノードを通る道筋（祖先と子孫）だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
     </div>
   </div>
 </footer>

@@ -296,8 +296,9 @@ export class NodeEditor extends Emitter {
    *  - 'off'（既定）… 無効
    *  - 'connected' … 辿れる範囲すべて（上流・下流をたどって行ける全部）
    *  - 'neighbors' … 隣接のみ（`focusDepth` 段まで。既定 1）
-   * 既定の `focusDirection: 'lineage'` は「上流をたどってから、そこから流れる先すべて」を強調する。
-   * 選択ノードの手前（上流）とその先の流れは入るが、途中のノードへ合流しているだけの別系統は入らない。
+   * 既定の `focusDirection: 'lineage'` は「その要素を通る道筋」を強調する。
+   * 起点まで遡れるノード（祖先）と起点から進めるノード（子孫）だけが対象で、
+   * 祖先から分かれた別の枝や、子孫へ合流してくる別の枝は入らない。
    * 進める先だけなら `'downstream'`、遡るだけなら `'upstream'`、向きを無視するなら `'both'`。
    * @param {'off'|'connected'|'neighbors'|boolean} mode
    * @param {{depth?:number, direction?:'lineage'|'downstream'|'upstream'|'both'}} [options]

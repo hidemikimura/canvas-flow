@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-18
+
+### 変更
+- **強調表示の `'lineage'`（既定）の意味を変更**: 「起点の祖先（上流）と子孫（下流）だけ＝起点を通る道筋」になり、祖先から分かれた別の枝や子孫へ合流してくる別の枝は入らなくなった。`A → B → C` に加えて `A → D`（コネクタでも `goto` でも）があるとき、C を選んでも D は強調されない。従来どおり前後の枝まで含めたいときは `direction: 'both'`
+
 ## [0.4.0] - 2026-09-18
 
 ### 追加
@@ -62,7 +67,8 @@
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html`
 
-[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.1.0...v0.2.0

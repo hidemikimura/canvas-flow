@@ -105,39 +105,60 @@ function buildLineage() {
   return g;
 }
 
-describe('lineage（上流をたどってから流れる先すべて）', () => {
-  it('B を選ぶと A,B,C,E,F が入り D は入らない', () => {
+describe('lineage（起点の祖先と子孫だけ）', () => {
+  it('B を選ぶと A,B,C だけ（祖先 A から分かれた E・F は入らない）', () => {
     const g = buildLineage();
     const { nodes, edges } = g.connectedTo(['B'], { direction: 'lineage' });
-    expect([...nodes].sort()).toEqual(['A', 'B', 'C', 'E', 'F']);
+    expect([...nodes].sort()).toEqual(['A', 'B', 'C']);
+    expect(nodes.has('E')).toBe(false);
     expect(nodes.has('D')).toBe(false);
-    expect([...edges].sort()).toEqual(['AB', 'AE', 'BC', 'EF']);
-    expect(edges.has('DE')).toBe(false);
+    expect([...edges].sort()).toEqual(['AB', 'BC']);
   });
 
-  it('D を選ぶと D,E,F だけ（A 系統には遡らない）', () => {
+  it('D を選ぶと D,E,F（子孫と、その先）', () => {
     const g = buildLineage();
     const { nodes, edges } = g.connectedTo(['D'], { direction: 'lineage' });
     expect([...nodes].sort()).toEqual(['D', 'E', 'F']);
     expect([...edges].sort()).toEqual(['DE', 'EF']);
   });
 
-  it('E を選ぶと上流の A・D とその流れが入る', () => {
+  it('E を選ぶと祖先 A・D と子孫 F（A から分かれた B・C は入らない）', () => {
     const g = buildLineage();
-    const { nodes } = g.connectedTo(['E'], { direction: 'lineage' });
-    expect([...nodes].sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+    const { nodes, edges } = g.connectedTo(['E'], { direction: 'lineage' });
+    expect([...nodes].sort()).toEqual(['A', 'D', 'E', 'F']);
+    expect(nodes.has('B')).toBe(false);
+    expect([...edges].sort()).toEqual(['AE', 'DE', 'EF']);
   });
 
-  it('A を選ぶと下流だけ（D は入らない）', () => {
+  it('A を選ぶと子孫すべて（合流してくる D は入らない）', () => {
     const g = buildLineage();
     const { nodes } = g.connectedTo(['A'], { direction: 'lineage' });
     expect([...nodes].sort()).toEqual(['A', 'B', 'C', 'E', 'F']);
+    expect(nodes.has('D')).toBe(false);
   });
 
   it('depth は上流・下流それぞれに効く', () => {
     const g = buildLineage();
-    const { nodes } = g.connectedTo(['B'], { direction: 'lineage', depth: 1 });
-    // 上流 1 段で A、そこから下流 1 段で B と E、B からは C
-    expect([...nodes].sort()).toEqual(['A', 'B', 'C', 'E']);
+    const { nodes } = g.connectedTo(['E'], { direction: 'lineage', depth: 1 });
+    // 上流 1 段で A と D、下流 1 段で F
+    expect([...nodes].sort()).toEqual(['A', 'D', 'E', 'F']);
+    const two = g.connectedTo(['C'], { direction: 'lineage', depth: 1 });
+    expect([...two.nodes].sort()).toEqual(['B', 'C']);
+  });
+
+  it('祖先から分かれた別の枝は goto でも入らない（A>B, B>C, A>D の D）', () => {
+    const g = new Graph();
+    for (const id of ['A', 'B', 'C', 'D']) g.addNode({ id, x: 0, y: 0, title: id, input: true, output: true });
+    g.addEdge({ id: 'AB', source: 'A', sourcePort: 'out', target: 'B', targetPort: 'in' });
+    g.addEdge({ id: 'BC', source: 'B', sourcePort: 'out', target: 'C', targetPort: 'in' });
+    g.setGoto('A', 'D');
+    const { nodes, links } = g.connectedTo(['C'], { direction: 'lineage' });
+    expect([...nodes].sort()).toEqual(['A', 'B', 'C']);
+    expect(nodes.has('D')).toBe(false);
+    expect(links.size).toBe(0);
+    // A を選べば goto 先の D は子孫として入る
+    const fromA = g.connectedTo(['A'], { direction: 'lineage' });
+    expect([...fromA.nodes].sort()).toEqual(['A', 'B', 'C', 'D']);
+    expect(fromA.links.size).toBe(1);
   });
 });

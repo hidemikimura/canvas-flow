@@ -1056,17 +1056,18 @@ export class Graph extends Emitter {
    * @param {'lineage'|'downstream'|'upstream'|'both'} [options.direction='both']
    *   - 'downstream' … 出力側へ進める先だけ
    *   - 'upstream'   … 入力側へ遡る先だけ
-   *   - 'lineage'    … 先に上流をたどり、そこから流れる先すべて（同じ流れにあるもの）
+   *   - 'lineage'    … 起点の上流（祖先）と下流（子孫）だけ。起点を通る道筋そのもので、
+   *                    祖先から分かれた別の枝や、子孫へ合流してくる別の枝は入らない
    *   - 'both'       … 向きを問わず繋がっているもの全部
    * @param {boolean} [options.includeStart=true] 起点自身を含めるか
-   * @returns {{nodes: Set<string>, edges: Set<string>}}
+   * @returns {{nodes: Set<string>, edges: Set<string>, links: Set<string>}}
    */
   connectedTo(startIds, { depth = Infinity, direction = 'both', includeStart = true, links = true } = {}) {
     if (direction === 'lineage') {
-      // 上流をたどってから、その全員の下流を集める。
-      // 「自分の上流ではないのに、途中のノードへ合流しているだけ」のノードは入らない
+      // 起点まで遡れるもの（祖先）と、起点から進めるもの（子孫）の和。
+      // 祖先から分かれた別の枝（A→B→C に対する A→D）は入らない
       const up = this.connectedTo(startIds, { depth, direction: 'upstream', links });
-      const out = this.connectedTo(up.nodes, { depth, direction: 'downstream', links });
+      const out = this.connectedTo(startIds, { depth, direction: 'downstream', links });
       for (const id of up.nodes) out.nodes.add(id);
       for (const id of up.edges) out.edges.add(id);
       for (const key of up.links) out.links.add(key);

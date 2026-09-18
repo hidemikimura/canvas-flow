@@ -4,7 +4,7 @@ import { NodeEditor } from '../src/core/editor.js';
 
 /**
  * A → B → C / A → E / D → E / E → F
- * lineage で B を選ぶと A・B・C・E・F が強調され、D だけ薄くなる。
+ * lineage（起点の祖先と子孫だけ）で B を選ぶと A・B・C が強調される。
  */
 const NODES = ['A', 'B', 'C', 'D', 'E', 'F'];
 const EDGES = [
@@ -44,10 +44,10 @@ describe('selectFocused', () => {
     const result = editor.selectFocused();
     expect(result.nodes.sort()).toEqual([...focus.nodes].sort());
     expect(result.edges.sort()).toEqual([...focus.edges].sort());
-    expect(sel()).toEqual({ nodes: ['A', 'B', 'C', 'E', 'F'], edges: ['AB', 'AE', 'BC', 'EF'] });
-    // 別系統の D と D→E は選ばれない
+    expect(sel()).toEqual({ nodes: ['A', 'B', 'C'], edges: ['AB', 'BC'] });
+    // 祖先 A から分かれた別の枝（E・F）や合流してくる D は選ばれない
+    expect(editor.selection.nodes.has('E')).toBe(false);
     expect(editor.selection.nodes.has('D')).toBe(false);
-    expect(editor.selection.edges.has('DE')).toBe(false);
   });
 
   it('選択が空なら何もせず null', () => {
@@ -61,13 +61,10 @@ describe('selectFocused', () => {
     editor.selectFocused();
     expect(sel().nodes).toEqual(['D', 'E', 'F']); // 置き換え（D の流れだけ）
 
-    editor.select({ nodes: ['D'] });
-    editor.selectFocused({ additive: true });
-    expect(sel().nodes).toEqual(['D', 'E', 'F']);
-
     editor.select({ nodes: ['B'] });
-    editor.selectFocused({ additive: true });
-    expect(sel().nodes).toEqual(['A', 'B', 'C', 'E', 'F']);
+    editor.selectFocused();
+    expect(sel().nodes).toEqual(['A', 'B', 'C']); // 置き換えなので D 系統は消える
+
     editor.select({ nodes: ['D'] }, { additive: true });
     editor.selectFocused({ additive: true });
     expect(sel().nodes).toEqual(NODES); // D の流れも足されて全部
@@ -78,7 +75,7 @@ describe('selectFocused', () => {
     editor.select({ nodes: ['B'] });
     expect(editor.focusSet()).toBe(null);
     editor.selectFocused();
-    expect(sel().nodes).toEqual(['A', 'B', 'C', 'E', 'F']);
+    expect(sel().nodes).toEqual(['A', 'B', 'C']);
   });
 
   it('depth / direction を渡すとその条件で辿り直す', () => {
@@ -105,27 +102,27 @@ describe('selectFocused', () => {
     editor.selectFocused();
     expect(seen.length).toBe(1);
     expect(seen[0].mode).toBe('connected');
-    expect(seen[0].nodes.sort()).toEqual(['A', 'B', 'C', 'E', 'F']);
-    expect(seen[0].edges.sort()).toEqual(['AB', 'AE', 'BC', 'EF']);
+    expect(seen[0].nodes.sort()).toEqual(['A', 'B', 'C']);
+    expect(seen[0].edges.sort()).toEqual(['AB', 'BC']);
   });
 
   it('読み取り専用でも選択できる', () => {
     editor.options.readOnly = true;
     editor.select({ nodes: ['B'] });
-    expect(editor.selectFocused().nodes.length).toBe(5);
+    expect(editor.selectFocused().nodes.length).toBe(3);
   });
 
   it('選択した範囲をそのまま強調対象として固定する（押すたびに広がらない）', () => {
     editor.select({ nodes: ['B'] });
     editor.selectFocused();
     const first = sel();
-    // 強調対象は選択と一致する（E の上流である D は増えない）
+    // 強調対象は選択と一致する（選択が増えたぶん広がらない）
     expect([...editor.focusSet().nodes].sort()).toEqual(first.nodes);
     editor.selectFocused();
     expect(sel()).toEqual(first);
     // 別の選択に変えると通常の計算に戻る
     editor.select({ nodes: ['E'] });
-    expect([...editor.focusSet().nodes].sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+    expect([...editor.focusSet().nodes].sort()).toEqual(['A', 'D', 'E', 'F']);
   });
 
   it('focus:change は固定後の範囲で 1 回だけ発火する', () => {
@@ -133,13 +130,14 @@ describe('selectFocused', () => {
     const seen = [];
     editor.on('focus:change', (d) => seen.push([...d.nodes].sort().join('')));
     editor.selectFocused();
-    expect(seen).toEqual(['ABCEF']);
+    expect(seen).toEqual(['ABC']);
   });
 
   it('固定した強調対象はグラフを変更すると作り直される', () => {
     editor.select({ nodes: ['B'] });
     editor.selectFocused();
     editor.graph.addEdge({ id: 'CD', source: 'C', sourcePort: 'out', target: 'D', targetPort: 'in' });
+    // 固定が解けて、選択 {A,B,C} の祖先・子孫が引き直される（C→D→E→F が増える）
     expect([...editor.focusSet().nodes].sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
   });
 });
