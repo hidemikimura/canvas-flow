@@ -133,6 +133,17 @@
       <option value="step">直角</option>
     </select>
   </label>
+  <label title="選択したノードと同じ流れにある要素だけをはっきり描き、他を薄くします">強調
+    <select id="focus">
+      <option value="off">なし</option>
+      <option value="connected:lineage">同じ流れ</option>
+      <option value="connected:downstream">進める先だけ</option>
+      <option value="connected:upstream">元をたどる</option>
+      <option value="connected:both">前後すべて</option>
+      <option value="neighbors:lineage">1 段だけ</option>
+    </select>
+  </label>
+  <button id="select-focused" title="強調表示されている要素をまとめて選択 (Ctrl+Shift+A)">強調を選択</button>
   <label>移動単位
     <select id="snap">
       <option value="0">なし</option>
@@ -187,6 +198,7 @@
         コネクタにマウスを乗せると中央に削除アイコン
       </p>
       <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
+      <p>「強調」を選んでからノードをクリックすると、同じ流れにある要素だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
     </div>
   </div>
 </footer>
@@ -275,9 +287,19 @@
           : null),
       });
       // 子ノードは外のノードとも自由に接続できる
-      if (i % 9 === 4 && i > 0) edges.push({ id: `e${i}c`, source: `n${i}c0`, sourcePort: 'out', target: `n${i - 1}`, targetPort: 'in' });
-      if (col > 0) edges.push({ id: `e${i}a`, source: `n${i - 1}`, sourcePort: 'item:p0:out', target: `n${i}`, targetPort: 'item:p0:in' });
-      if (row > 0 && i % 3 === 0) edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+      // 8 個ずつのまとまり（連結成分）に分ける。強調表示で薄くなる側が見えるように
+      const cluster = (k) => Math.floor(k / 8);
+      if (i % 9 === 4 && i > 0 && cluster(i) === cluster(i - 1)) {
+        edges.push({ id: `e${i}c`, source: `n${i}c0`, sourcePort: 'out', target: `n${i - 1}`, targetPort: 'in' });
+      }
+      if (col > 0 && cluster(i) === cluster(i - 1)) {
+        edges.push({ id: `e${i}a`, source: `n${i - 1}`, sourcePort: 'item:p0:out', target: `n${i}`, targetPort: 'item:p0:in' });
+      }
+      if (row > 0 && i % 3 === 0 && cluster(i) === cluster(i - cols)) {
+        edges.push({ id: `e${i}b`, source: `n${i - cols}`, sourcePort: 'out', target: `n${i}`, targetPort: 'in' });
+      }
+      // 7 個ごとに 1 つ、コネクタを使わない ID 指定の遷移（goto）。選択・強調時だけ点線で出る
+      if (i % 7 === 3 && i + 2 < n) items[0].goto = { to: `n${i + 2}`, label: 'goto' };
     }
     return { nodes, edges };
   }
@@ -325,6 +347,7 @@
     node: { fill: '#1b222c', headerFill: '#243040', stroke: '#3a4757', titleColor: '#e6ebf1', textColor: '#c3cdd9', itemSeparator: '#2a333f', shadow: 'rgba(0,0,0,0.5)' },
     port: { fill: '#0f141a', stroke: '#7c8794' },
     edge: { stroke: '#6b7684' },
+    goto: { stroke: '#7d93ad', labelColor: '#aab6c4', labelBg: 'rgba(15,20,26,0.85)' },
     minimap: { background: 'rgba(15,20,26,0.9)', border: '#2a333f', node: '#43536a' },
   };
   // setTheme は部分マージなので、明るいテーマへ戻すときは同じキーを既定値で上書きし直す
@@ -334,6 +357,7 @@
     node: { fill: '#ffffff', headerFill: '#eef1f5', stroke: '#c9ced6', titleColor: '#1f2933', textColor: '#3b4652', itemSeparator: '#eef1f5', shadow: 'rgba(0,0,0,0.08)' },
     port: { fill: '#ffffff', stroke: '#64748b' },
     edge: { stroke: '#7c8794' },
+    goto: { stroke: '#94a3b8', labelColor: '#64748b', labelBg: 'rgba(255,255,255,0.85)' },
     minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8' },
   };
   function applyTheme(dark) {
@@ -354,6 +378,17 @@
   $('regen').addEventListener('click', regen);
   $('count').addEventListener('change', regen);
   $('edge-type').addEventListener('change', (e) => el.setSelectedEdgeType(e.target.value));
+  $('focus').addEventListener('change', (e) => {
+    const [mode, direction] = e.target.value.split(':');
+    if (typeof el.setFocusMode !== 'function') return log('強調表示は読み込み中のバージョンでは未対応です');
+    el.setFocusMode(mode, direction ? { direction } : undefined);
+    if (mode !== 'off' && !el.editor.selection.nodes.size) log('ノードを選択すると強調されます');
+  });
+  $('select-focused').addEventListener('click', () => {
+    if (typeof el.selectFocused !== 'function') return log('この操作は読み込み中のバージョンでは未対応です');
+    const picked = el.selectFocused();
+    if (!picked) log('ノードを選択してください');
+  });
   $('snap').addEventListener('change', (e) => { el.moveSnap = Number(e.target.value); });
   $('dragmode').addEventListener('change', (e) => { el.dragMode = e.target.value; });
   $('add-child').addEventListener('click', () => {
@@ -384,10 +419,18 @@
     'edge-add', 'edge-remove', 'edges-delete', 'edge-delete-icon', 'connect-rejected',
     'node-add', 'node-remove', 'node-resize-end', 'nodes-move-end',
     'edge-type-change', 'layout', 'insert', 'import', 'export', 'import-error',
+    'focus-select',
   ]) {
     el.addEventListener(name, (e) => log(name, brief(e.detail)));
   }
   el.addEventListener('selection-change', (e) => log('selection-change', `ノード ${e.detail.nodes.length} / コネクタ ${e.detail.edges.length}`));
+  el.addEventListener('focus-change', (e) => {
+    const d = e.detail;
+    log('focus-change', d.mode === 'off' ? 'なし' : `${d.mode}:${d.direction} · ノード ${d.nodes.length} / コネクタ ${d.edges.length}${d.links?.length ? ` / goto ${d.links.length}` : ''}`);
+    // 強調表示の設定を UI に書き戻す（selectFocused などで向きが変わったとき用）
+    const value = d.mode === 'off' ? 'off' : `${d.mode}:${d.direction}`;
+    if ($('focus').value !== value && [...$('focus').options].some((o) => o.value === value)) $('focus').value = value;
+  });
   el.addEventListener('render', (e) => {
     const s = e.detail;
     statsEl.textContent = `描画 ${s.ms.toFixed(1)}ms · 表示中 ${s.nodes} ノード / ${s.edges} コネクタ · 全体 ${el.editor.graph.nodes.size} / ${el.editor.graph.edges.size} · ${Math.round(el.editor.viewport.zoom * 100)}%`;
