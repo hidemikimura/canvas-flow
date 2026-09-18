@@ -265,5 +265,222 @@ document.getElementById('theme').addEventListener('change', (e) => {
       };
 });
 
+// --- 左のノードパレット（ドラッグ&ドロップで追加）---------------------------
+// 1 ノードのものは spec（addNodeAt に渡す）、複数ノードのものは json（insertJSON に渡す）
+const PALETTE = [
+  { group: 'ノード種別', name: '入力', hint: '入力ノード。ヘッダの入力端子なし',
+    spec: () => ({ type: 'input', title: '入力', input: false, output: { max: 3 },
+      items: [{ label: 'value', value: '0', output: true }] }) },
+  { group: 'ノード種別', name: '処理', hint: '処理ノード',
+    spec: () => ({ type: 'process', title: '処理', input: true, output: { max: 3 },
+      items: [{ label: 'value', value: '0', input: { max: 1 }, output: true },
+               { label: 'threshold', value: '0.5', input: 2, output: true }] }) },
+  { group: 'ノード種別', name: '出力', hint: '出力ノード。ヘッダの出力端子なし',
+    spec: () => ({ type: 'output', title: '出力', input: true, output: false,
+      items: [{ label: 'value', value: '0', input: true }] }) },
+  { group: 'ノード種別', name: 'メモ', hint: '端子を表示しないメモ用ノード',
+    spec: () => ({ type: 'note', title: 'メモ', input: true, output: { max: 3, visible: false },
+      items: [{ label: 'text', value: 'ダブルクリックで編集', input: false, output: false }] }) },
+
+  { group: 'テンプレート', name: '選択肢 3 つ', hint: '項目ごとに出力端子を持つ分岐用ノード',
+    spec: () => ({ type: 'process', title: '選択肢', input: true, output: { max: 3 },
+      items: [{ label: '料金について', value: '1', input: false, output: { max: 1 } },
+               { label: '使い方について', value: '2', input: false, output: { max: 1 } },
+               { label: '有人に切り替え', value: '3', input: false, output: { max: 1 } }] }) },
+  { group: 'テンプレート', name: '子ノード付き', hint: '中に子ノードを 2 つ持つノード（孫も可）',
+    spec: () => ({ type: 'process', title: '親', input: true, output: true,
+      childs: [
+        { type: 'input', title: '子 A', input: true, output: true,
+          items: [{ label: 'value', value: 'a', input: { max: 1 }, output: true }] },
+        { type: 'output', title: '子 B', input: true, output: true },
+      ] }) },
+  { group: 'テンプレート', name: 'メモ付き', hint: 'ノードの外にバッジで出るメモ付き',
+    spec: () => ({ type: 'process', title: 'メモ付き', input: true, output: true,
+      note: { text: 'ここを直す', color: 'amber' },
+      items: [{ label: 'value', value: '0', input: true, output: true }] }) },
+  { group: 'テンプレート（複数ノード）', name: '3 連ノード', hint: '入力 → 処理 → 出力 をまとめて追加',
+    json: {
+      nodes: [
+        { id: 't1', type: 'input', title: '入力', x: 0, y: 0, output: true, items: [{ id: 'a', label: 'value', value: '1', output: true }] },
+        { id: 't2', type: 'process', title: '処理', x: 300, y: 60, input: true, output: true, items: [{ id: 'b', label: 'value', value: '2', input: true, output: true }] },
+        { id: 't3', type: 'output', title: '出力', x: 600, y: 0, input: true, items: [{ id: 'c', label: 'value', value: '3', input: true }] },
+      ],
+      edges: [
+        { source: 't1', sourcePort: 'item:a:out', target: 't2', targetPort: 'item:b:in' },
+        { source: 't2', sourcePort: 'item:b:out', target: 't3', targetPort: 'item:c:in' },
+      ],
+    } },
+  { group: 'テンプレート（複数ノード）', name: 'goto の組',
+    hint: 'コネクタを使わない ID 指定の遷移（goto）。選択・強調したときだけ点線で出る',
+    json: {
+      nodes: [
+        { id: 'g0', type: 'process', title: 'アンケート', x: 0, y: 0, input: true, output: true,
+          items: [{ id: 'again', label: 'はじめに戻る', goto: { to: 'g1', label: '戻る' } }] },
+        { id: 'g1', type: 'input', title: 'あいさつ', x: 0, y: 180, input: true, output: true },
+      ],
+      edges: [],
+    } },
+  { group: 'テンプレート（複数ノード）', name: '分岐', hint: '1 ノードから 2 方向へ分かれる形',
+    json: {
+      nodes: [
+        { id: 'b0', type: 'process', title: '分岐', x: 0, y: 0, input: true, output: true,
+          items: [{ id: 'y', label: 'はい', output: { max: 1 } }, { id: 'n', label: 'いいえ', output: { max: 1 } }] },
+        { id: 'b1', type: 'output', title: 'はいの先', x: 300, y: -60, input: true },
+        { id: 'b2', type: 'output', title: 'いいえの先', x: 300, y: 80, input: true },
+      ],
+      edges: [
+        { source: 'b0', sourcePort: 'item:y:out', target: 'b1', targetPort: 'in' },
+        { source: 'b0', sourcePort: 'item:n:out', target: 'b2', targetPort: 'in' },
+      ],
+    } },
+];
+
+const paletteEl = document.getElementById('palette');
+
+/** パレット項目の見た目（ノードの縮小版）を組み立てる */
+function palettePreview(entry) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pal-preview';
+  const nodes = entry.json ? entry.json.nodes : [entry.spec()];
+  for (const n of nodes.slice(0, 3)) {
+    const card = document.createElement('div');
+    card.className = 'pal-node';
+    card.dataset.type = n.type ?? 'process';
+    const head = document.createElement('div');
+    head.className = 'pal-head';
+    head.textContent = n.title ?? '';
+    if (n.note) {
+      const b = document.createElement('span');
+      b.className = 'pal-badge';
+      b.textContent = 'メモ';
+      head.appendChild(b);
+    }
+    card.appendChild(head);
+    for (const it of (n.items ?? []).slice(0, 3)) {
+      const row = document.createElement('div');
+      row.className = 'pal-row';
+      row.textContent = it.goto ? `${it.label} ⇢` : it.label;
+      card.appendChild(row);
+    }
+    for (const c of (n.childs ?? []).slice(0, 2)) {
+      const row = document.createElement('div');
+      row.className = 'pal-row child';
+      row.textContent = `└ ${c.title}`;
+      card.appendChild(row);
+    }
+    wrap.appendChild(card);
+  }
+  if (nodes.length > 3) {
+    const more = document.createElement('div');
+    more.className = 'pal-row';
+    more.textContent = `ほか ${nodes.length - 3} ノード`;
+    wrap.appendChild(more);
+  }
+  const name = document.createElement('div');
+  name.className = 'pal-name';
+  name.textContent = entry.name;
+  wrap.appendChild(name);
+  return wrap;
+}
+
+function buildPalette() {
+  let group = null;
+  PALETTE.forEach((entry, i) => {
+    if (entry.group !== group) {
+      group = entry.group;
+      const h = document.createElement('h3');
+      h.textContent = group;
+      paletteEl.appendChild(h);
+    }
+    const item = document.createElement('div');
+    item.className = 'pal-item';
+    item.draggable = true;
+    item.tabIndex = 0;
+    item.dataset.index = String(i);
+    item.title = entry.hint ?? entry.name;
+    item.appendChild(palettePreview(entry));
+    paletteEl.appendChild(item);
+  });
+  // ノード種別の色をキャンバスの見た目に合わせる
+  for (const card of paletteEl.querySelectorAll('.pal-node')) {
+    const style = nodeTypes[card.dataset.type]?.style ?? {};
+    if (style.headerFill) card.style.setProperty('--pal-head', style.headerFill);
+    if (style.stroke) card.style.setProperty('--pal-stroke', style.stroke);
+    if (style.fill) card.style.setProperty('--pal-fill', style.fill);
+  }
+}
+
+/** パレットの項目をキャンバスへ追加する。at を渡さなければ画面中央 */
+function addFromPalette(entry, client) {
+  if (entry.json) {
+    // 複数ノードは insertJSON（anchor:'origin' = JSON の座標を追加位置からの相対として扱う）
+    const json = structuredClone(entry.json);
+    const res = el.insertJSON(json, { client, anchor: 'origin' });
+    console.log('パレットから挿入', entry.name, res);
+    return;
+  }
+  const node = client
+    ? el.addNodeAt(entry.spec(), { client, anchor: 'header', avoidOverlap: true })
+    : el.addNodeAtCenter(entry.spec(), { avoidOverlap: true });
+  console.log('パレットから追加', entry.name, node?.id);
+}
+
+const entryOf = (target) => {
+  const item = target?.closest?.('.pal-item');
+  return item ? PALETTE[Number(item.dataset.index)] : null;
+};
+
+let dragEntry = null;
+
+paletteEl.addEventListener('dragstart', (e) => {
+  const entry = entryOf(e.target);
+  if (!entry) return;
+  dragEntry = entry;
+  e.target.closest('.pal-item').classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'copy';
+  // 他のアプリへ落としたときのために JSON も載せておく
+  e.dataTransfer.setData('application/json', JSON.stringify(entry.json ?? { nodes: [entry.spec()] }));
+  e.dataTransfer.setData('text/plain', entry.name);
+});
+paletteEl.addEventListener('dragend', (e) => {
+  e.target.closest?.('.pal-item')?.classList.remove('dragging');
+  dragEntry = null;
+  el.classList.remove('drop-target');
+});
+// クリック / Enter でも画面中央に追加できる
+paletteEl.addEventListener('click', (e) => {
+  const entry = entryOf(e.target);
+  if (entry) addFromPalette(entry);
+});
+paletteEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const entry = entryOf(e.target);
+  if (!entry) return;
+  e.preventDefault();
+  addFromPalette(entry);
+});
+
+// エディタ側の受け口。JSON ファイルのドロップ（ライブラリ内蔵）とは types が違うので競合しない
+el.addEventListener('dragover', (e) => {
+  if (!dragEntry) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  el.classList.add('drop-target');
+});
+el.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+  el.classList.remove('drop-target');
+});
+el.addEventListener('drop', (e) => {
+  if (!dragEntry) return;
+  e.preventDefault();
+  e.stopPropagation();
+  el.classList.remove('drop-target');
+  addFromPalette(dragEntry, e);
+  dragEntry = null;
+});
+
+buildPalette();
+
 // デバッグ用
 window.editor = el;

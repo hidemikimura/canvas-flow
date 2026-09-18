@@ -65,8 +65,44 @@
   .chip.ok { background: var(--ok-bg); color: var(--ok-fg); }
   .chip.warn { background: var(--warn-bg); color: var(--warn-fg); }
 
-  .stage { flex: 1 1 auto; min-height: 520px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+  .stage { flex: 1 1 auto; min-height: 520px; display: grid; grid-template-columns: 200px minmax(0, 1fr) 300px; }
   canvas-flow-editor { min-height: 0; min-width: 0; }
+  canvas-flow-editor.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+
+  /* 左のノードパレット（ドラッグ&ドロップでキャンバスに追加） */
+  #palette {
+    border-right: 1px solid var(--line); background: var(--bg-soft);
+    overflow: auto; padding: 10px 10px 18px; min-height: 0;
+  }
+  #palette h3 {
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
+    margin: 14px 2px 6px; font-weight: 600;
+  }
+  #palette h3:first-child { margin-top: 0; }
+  .pal-item { cursor: grab; border: 1px solid transparent; border-radius: 8px; padding: 6px; margin-bottom: 2px; }
+  .pal-item:hover, .pal-item:focus-visible { background: var(--accent-soft); border-color: var(--accent); outline: none; }
+  .pal-item.dragging { opacity: .45; }
+  .pal-preview { display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
+  .pal-node {
+    border: 1px solid var(--pal-stroke, var(--line)); border-radius: 5px;
+    background: var(--pal-fill, var(--bg)); overflow: hidden;
+  }
+  .pal-head {
+    background: var(--pal-head, var(--code-bg)); color: var(--pal-title, var(--fg));
+    font-size: 11px; font-weight: 600; padding: 3px 6px; line-height: 1.5;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pal-row {
+    font-size: 10px; line-height: 1.6; padding: 2px 6px; color: var(--pal-text, var(--fg-muted));
+    border-top: 1px solid var(--pal-sep, var(--line));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pal-row.child { padding-left: 14px; }
+  .pal-badge {
+    display: inline-block; font-size: 9px; line-height: 1.6; padding: 0 5px; margin-left: 4px;
+    border-radius: 999px; color: #fff; background: #d97706;
+  }
+  .pal-name { font-size: 11.5px; color: var(--fg); margin-top: 2px; }
   aside {
     border-left: 1px solid var(--line); background: var(--bg-soft);
     display: flex; flex-direction: column; min-height: 0;
@@ -90,8 +126,11 @@
   kbd { font: inherit; font-size: 11.5px; background: var(--code-bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
 
   @media (max-width: 900px) {
-    .stage { grid-template-columns: 1fr; grid-template-rows: minmax(340px, 1fr) 200px; }
+    .stage { grid-template-columns: 1fr; grid-template-rows: auto minmax(340px, 1fr) 200px; }
     aside { border-left: 0; border-top: 1px solid var(--line); }
+    #palette { border-right: 0; border-bottom: 1px solid var(--line); max-height: 150px; display: flex; gap: 8px; }
+    #palette h3 { display: none; }
+    .pal-item { flex: none; width: 140px; }
     footer .cols { grid-template-columns: 1fr; }
   }
 </style>
@@ -166,6 +205,7 @@
 </div>
 
 <div class="stage">
+  <div id="palette" title="ドラッグしてキャンバスに置くと追加されます（クリックで画面中央に追加）"></div>
   <canvas-flow-editor id="editor" minimap edge-delete-icon></canvas-flow-editor>
   <aside>
     <h2>イベントログ <button id="clear">消去</button></h2>
@@ -183,7 +223,7 @@
 &lt;/script&gt;
 
 &lt;canvas-flow-editor minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;</code></pre>
-      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.5.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
+      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.6.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
     </div>
     <div>
       <h3>操作</h3>
@@ -199,6 +239,7 @@
       </p>
       <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
       <p>「強調」を選んでからノードをクリックすると、そのノードを通る道筋（祖先と子孫）だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
+      <p>左のパレットからノードをキャンバスへドラッグ&amp;ドロップすると、その位置に追加されます（クリックすると画面中央に追加）。複数ノードのテンプレートは <code>insertJSON(json, { client, anchor: 'origin' })</code>、1 つのノードは <code>addNodeAt(spec, { client, anchor: 'header' })</code> を呼んでいるだけで、パレット自体はこのページ側の実装です。</p>
       <p>ノードの外に出ている色付きのバッジは <code>note</code>（メモ）です。ノードの大きさは変えずに、他のノードやバッジと重ならない位置へ自動で置かれます。マウスを乗せると全文が出て、ダブルクリックで編集、右クリックメニューからも追加・削除できます。</p>
     </div>
   </div>
@@ -359,6 +400,221 @@
     log('load', `${n} ノードを ${ms.toFixed(1)}ms で生成`);
   }
 
+  // --- 左のノードパレット（ドラッグ&ドロップで追加）-------------------------
+  // 1 ノードのものは spec（addNodeAt に渡す）、複数ノードのものは json（insertJSON に渡す）
+  const PALETTE = [
+    { group: 'ノード種別', name: '入力', hint: '入力ノード。ヘッダの入力端子なし',
+      spec: () => ({ type: 'input', title: '入力', input: false, output: { max: 3 },
+        items: [{ label: 'value', value: '0', output: true }] }) },
+    { group: 'ノード種別', name: '処理', hint: '処理ノード',
+      spec: () => ({ type: 'process', title: '処理', input: true, output: { max: 3 },
+        items: [{ label: 'value', value: '0', input: { max: 1 }, output: true },
+                 { label: 'threshold', value: '0.5', input: 2, output: true }] }) },
+    { group: 'ノード種別', name: '出力', hint: '出力ノード。ヘッダの出力端子なし',
+      spec: () => ({ type: 'output', title: '出力', input: true, output: false,
+        items: [{ label: 'value', value: '0', input: true }] }) },
+    { group: 'ノード種別', name: 'メモ', hint: '端子を表示しないメモ用ノード',
+      spec: () => ({ type: 'note', title: 'メモ', input: true, output: { max: 3, visible: false },
+        items: [{ label: 'text', value: 'ダブルクリックで編集', input: false, output: false }] }) },
+
+    { group: 'テンプレート', name: '選択肢 3 つ', hint: '項目ごとに出力端子を持つ分岐用ノード',
+      spec: () => ({ type: 'process', title: '選択肢', input: true, output: { max: 3 },
+        items: [{ label: '料金について', value: '1', output: { max: 1 } },
+                 { label: '使い方について', value: '2', output: { max: 1 } },
+                 { label: '有人に切り替え', value: '3', output: { max: 1 } }] }) },
+    { group: 'テンプレート', name: '子ノード付き', hint: '中に子ノードを 2 つ持つノード（入れ子は何段でも可）',
+      spec: () => ({ type: 'process', title: '親', input: true, output: true,
+        childs: [
+          { type: 'input', title: '子 A', input: true, output: true,
+            items: [{ label: 'value', value: 'a', input: { max: 1 }, output: true }] },
+          { type: 'output', title: '子 B', input: true, output: true },
+        ] }) },
+    { group: 'テンプレート', name: 'メモ付き', hint: 'ノードの外にバッジで出るメモ（note）付き',
+      spec: () => ({ type: 'process', title: 'メモ付き', input: true, output: true,
+        note: { text: 'ここを直す', color: 'amber' },
+        items: [{ label: 'value', value: '0', input: true, output: true }] }) },
+
+    { group: 'テンプレート（複数ノード）', name: '3 連ノード', hint: '入力 → 処理 → 出力 をまとめて追加',
+      json: TEMPLATE },
+    { group: 'テンプレート（複数ノード）', name: 'goto の組',
+      hint: 'コネクタを使わない ID 指定の遷移（goto）。選択・強調したときだけ点線で出る',
+      json: {
+        nodes: [
+          { id: 'g0', type: 'process', title: 'アンケート', x: 0, y: 0, input: true, output: true,
+            items: [{ id: 'again', label: 'はじめに戻る', goto: { to: 'g1', label: '戻る' } }] },
+          { id: 'g1', type: 'input', title: 'あいさつ', x: 0, y: 180, input: true, output: true },
+        ],
+        edges: [],
+      } },
+    { group: 'テンプレート（複数ノード）', name: '分岐', hint: '1 ノードから 2 方向へ分かれる形',
+      json: {
+        nodes: [
+          { id: 'b0', type: 'process', title: '分岐', x: 0, y: 0, input: true, output: true,
+            items: [{ id: 'y', label: 'はい', output: { max: 1 } }, { id: 'n', label: 'いいえ', output: { max: 1 } }] },
+          { id: 'b1', type: 'output', title: 'はいの先', x: 300, y: -60, input: true },
+          { id: 'b2', type: 'output', title: 'いいえの先', x: 300, y: 80, input: true },
+        ],
+        edges: [
+          { source: 'b0', sourcePort: 'item:y:out', target: 'b1', targetPort: 'in' },
+          { source: 'b0', sourcePort: 'item:n:out', target: 'b2', targetPort: 'in' },
+        ],
+      } },
+  ];
+
+  const paletteEl = $('palette');
+
+  /** パレット項目の見た目（ノードの縮小版）を組み立てる */
+  function palettePreview(entry) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pal-preview';
+    const nodes = entry.json ? entry.json.nodes : [entry.spec()];
+    for (const n of nodes.slice(0, 3)) {
+      const card = document.createElement('div');
+      card.className = 'pal-node';
+      card.dataset.type = n.type ?? 'process';
+      const head = document.createElement('div');
+      head.className = 'pal-head';
+      head.textContent = n.title ?? '';
+      if (n.note) {
+        const b = document.createElement('span');
+        b.className = 'pal-badge';
+        b.textContent = 'メモ';
+        head.appendChild(b);
+      }
+      card.appendChild(head);
+      for (const it of (n.items ?? []).slice(0, 3)) {
+        const row = document.createElement('div');
+        row.className = 'pal-row';
+        row.textContent = it.goto ? `${it.label} ⇢` : it.label;
+        card.appendChild(row);
+      }
+      for (const c of (n.childs ?? []).slice(0, 2)) {
+        const row = document.createElement('div');
+        row.className = 'pal-row child';
+        row.textContent = `└ ${c.title}`;
+        card.appendChild(row);
+      }
+      wrap.appendChild(card);
+    }
+    if (nodes.length > 3) {
+      const more = document.createElement('div');
+      more.className = 'pal-row';
+      more.textContent = `ほか ${nodes.length - 3} ノード`;
+      wrap.appendChild(more);
+    }
+    const name = document.createElement('div');
+    name.className = 'pal-name';
+    name.textContent = entry.name;
+    wrap.appendChild(name);
+    return wrap;
+  }
+
+  function buildPalette() {
+    let group = null;
+    PALETTE.forEach((entry, i) => {
+      if (entry.group !== group) {
+        group = entry.group;
+        const h = document.createElement('h3');
+        h.textContent = group;
+        paletteEl.appendChild(h);
+      }
+      const item = document.createElement('div');
+      item.className = 'pal-item';
+      item.draggable = true;
+      item.tabIndex = 0;
+      item.dataset.index = String(i);
+      item.title = entry.hint ?? entry.name;
+      item.appendChild(palettePreview(entry));
+      paletteEl.appendChild(item);
+    });
+  }
+
+  /** パレットの色をキャンバスのノード種別・テーマに合わせる */
+  function paintPalette(dark) {
+    const types = dark ? DARK_TYPES : LIGHT_TYPES;
+    const base = dark ? DARK.node : LIGHT.node;
+    for (const card of paletteEl.querySelectorAll('.pal-node')) {
+      const style = types[card.dataset.type]?.style ?? {};
+      card.style.setProperty('--pal-head', style.headerFill ?? base.headerFill);
+      card.style.setProperty('--pal-stroke', style.stroke ?? base.stroke);
+      card.style.setProperty('--pal-fill', style.fill ?? base.fill);
+      card.style.setProperty('--pal-title', base.titleColor);
+      card.style.setProperty('--pal-text', base.textColor);
+      card.style.setProperty('--pal-sep', base.itemSeparator);
+    }
+  }
+
+  /** パレットの項目をキャンバスへ追加する。client を渡さなければ画面中央 */
+  function addFromPalette(entry, client) {
+    if (el.readOnly) return log('読み取り専用のときは追加できません');
+    if (entry.json) {
+      // 複数ノードは insertJSON（anchor:'origin' = JSON の座標を追加位置からの相対として扱う）
+      el.insertJSON(structuredClone(entry.json), { client, anchor: 'origin' });
+      return;
+    }
+    const spec = entry.spec();
+    const node = client
+      ? el.addNodeAt(spec, { client, anchor: 'header', avoidOverlap: true })
+      : el.addNodeAtCenter(spec, { avoidOverlap: true });
+    if (node) log('パレットから追加', entry.name);
+  }
+
+  const paletteEntryOf = (target) => {
+    const item = target?.closest?.('.pal-item');
+    return item ? PALETTE[Number(item.dataset.index)] : null;
+  };
+
+  let dragEntry = null;
+
+  paletteEl.addEventListener('dragstart', (e) => {
+    const entry = paletteEntryOf(e.target);
+    if (!entry) return;
+    dragEntry = entry;
+    e.target.closest('.pal-item').classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/json', JSON.stringify(entry.json ?? { nodes: [entry.spec()] }));
+    e.dataTransfer.setData('text/plain', entry.name);
+  });
+  paletteEl.addEventListener('dragend', (e) => {
+    e.target.closest?.('.pal-item')?.classList.remove('dragging');
+    dragEntry = null;
+    el.classList.remove('drop-target');
+  });
+  // クリック / Enter でも画面中央に追加できる
+  paletteEl.addEventListener('click', (e) => {
+    const entry = paletteEntryOf(e.target);
+    if (entry) addFromPalette(entry);
+  });
+  paletteEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const entry = paletteEntryOf(e.target);
+    if (!entry) return;
+    e.preventDefault();
+    addFromPalette(entry);
+  });
+
+  // エディタ側の受け口。JSON ファイルのドロップ（ライブラリ内蔵）とは types が違うので競合しない
+  el.addEventListener('dragover', (e) => {
+    if (!dragEntry) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.add('drop-target');
+  });
+  el.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    el.classList.remove('drop-target');
+  });
+  el.addEventListener('drop', (e) => {
+    if (!dragEntry) return;
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.remove('drop-target');
+    addFromPalette(dragEntry, e);
+    dragEntry = null;
+  });
+
+  buildPalette();
+
   const DARK = {
     background: '#0f141a',
     grid: { color: '#1e2732', majorColor: '#2c3947' },
@@ -382,6 +638,7 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     el.theme = dark ? DARK : LIGHT;
     el.nodeTypes = dark ? DARK_TYPES : LIGHT_TYPES;
+    paintPalette(dark);
   }
   $('dark').checked = matchMedia('(prefers-color-scheme: dark)').matches;   // 初期値は OS の設定に合わせる
   $('dark').addEventListener('change', (e) => applyTheme(e.target.checked));
