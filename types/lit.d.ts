@@ -23,6 +23,8 @@ import type {
   EdgeType,
   FocusDirection,
   FocusMode,
+  FocusPreview,
+  FocusPreviewOptions,
   ImportDataOptions,
   ImportResult,
   InsertJSONOptions,
@@ -221,6 +223,11 @@ export class CanvasFlowEditor extends LitElement {
     depth?: number;
     direction?: FocusDirection;
   }): { nodes: string[]; edges: string[] } | null;
+  /** 指定したノードを選択したと仮定したときに強調表示される要素（選択も設定も変えない） */
+  focusPreview(
+    nodeOrIds: string | Node | Iterable<string | Node>,
+    options?: FocusPreviewOptions,
+  ): FocusPreview;
   autoLayout(options?: AutoLayoutOptions): Map<string, Point> | null;
   undo(): boolean;
   redo(): boolean;

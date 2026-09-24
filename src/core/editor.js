@@ -396,6 +396,54 @@ export class NodeEditor extends Emitter {
   }
 
   /**
+   * 指定したノードを選択したと仮定したときに強調表示される要素を返す。
+   * 選択も強調表示の設定も一切変えない**問い合わせ専用**のメソッドで、
+   * `focus:change`（Lit: `focus-change`）の detail と同じ形の ID 配列を返す。
+   *
+   * `mode` / `direction` / `depth` は渡されたものを使い、省略したものは現在の設定
+   * （`focusMode` / `focusDirection` / `focusDepth`）を使う。ただし現在の `focusMode` が
+   * `'off'`（強調表示を使っていない）ときは `'connected'` として計算する。
+   * 問い合わせ用なので「今は off だから空」より「off でも辿った結果」の方が役に立つため。
+   * `mode: 'off'` を**明示**したときだけ空の結果を返す。
+   *
+   * @param {string|object|Iterable<string|object>} nodeOrIds 起点にするノード（ID・ノード・その配列）
+   * @param {object} [options]
+   * @param {'off'|'connected'|'neighbors'|boolean} [options.mode] 省略時は現在の focusMode（off なら connected）
+   * @param {'lineage'|'downstream'|'upstream'|'both'} [options.direction] 省略時は現在の focusDirection
+   * @param {number} [options.depth] neighbors のときの段数。省略時は現在の focusDepth（既定 1）
+   * @param {boolean} [options.links=true] goto（ID 指定の遷移）も辿るか
+   * @param {boolean} [options.includeStart=true] 起点のノード自身を結果に含めるか
+   * @returns {{mode:'off'|'connected'|'neighbors', direction:string, nodes:string[], edges:string[], links:string[]}}
+   *   存在しないノード ID は無視される（結果にも入らない）
+   */
+  focusPreview(nodeOrIds, { mode, direction, depth, links = true, includeStart = true } = {}) {
+    const ids = [];
+    const push = (v) => {
+      const id = typeof v === 'string' ? v : v?.id;
+      if (id != null && this.graph.nodes.has(id) && !ids.includes(id)) ids.push(id);
+    };
+    if (nodeOrIds != null) {
+      if (typeof nodeOrIds === 'string' || !nodeOrIds[Symbol.iterator]) push(nodeOrIds);
+      else for (const v of nodeOrIds) push(v);
+    }
+    const asked = mode === true ? 'connected' : mode === false ? 'off' : mode;
+    // 省略時は現在の設定。ただし off のときは connected として計算する（明示の off だけ空にする）
+    const resolved = asked ?? (this.focusMode === 'off' ? 'connected' : this.focusMode);
+    const dir = direction ?? this.options.focusDirection;
+    if (resolved === 'off' || !ids.length) return { mode: resolved, direction: dir, nodes: [], edges: [], links: [] };
+    const steps =
+      resolved === 'neighbors' ? Math.max(1, depth ?? this.options.focusDepth ?? 1) : depth ?? Infinity;
+    const set = this.graph.connectedTo(ids, { depth: steps, direction: dir, includeStart, links });
+    return {
+      mode: resolved,
+      direction: dir,
+      nodes: [...set.nodes],
+      edges: [...set.edges],
+      links: [...(set.links ?? [])],
+    };
+  }
+
+  /**
    * いま強調表示されている要素（`focusSet()` の中身）をそのまま選択する。
    * 強調表示が無効（focusMode: 'off'）のときは `focusDirection` / `focusDepth` の設定どおりに
    * 繋がりを辿って選択する（`selectConnected()` と同じ挙動）。

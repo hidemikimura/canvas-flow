@@ -794,6 +794,10 @@ export class CanvasFlowEditor extends LitElement {
   selectFocused(options) {
     return this.editor?.selectFocused(options) ?? null;
   }
+  /** 指定したノードを選択したと仮定したときに強調表示される要素（選択は変えない） */
+  focusPreview(nodeOrIds, options) {
+    return this.editor?.focusPreview(nodeOrIds, options) ?? { mode: 'off', direction: 'lineage', nodes: [], edges: [], links: [] };
+  }
   deleteSelectedEdges(options) {
     return this.editor?.deleteSelectedEdges(options) ?? [];
   }

@@ -3,6 +3,11 @@
 このファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に沿って書き、
 バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.7.0] - 2026-09-24
+
+### 追加
+- **`editor.focusPreview(nodeOrIds, options?)`**: 指定したノードを選択したと仮定したときに強調表示される要素を返す問い合わせ専用の API。選択も強調表示の設定も変えず、`focus:change` の detail と同じ形（`{ mode, direction, nodes, edges, links }`、ID の配列）を返す。`mode` / `direction` / `depth` は渡したものを使い、省略時は現在の設定（`focusMode` が `'off'` のときは `'connected'` として計算。空がほしいときは `mode: 'off'` を明示）。`links: false` で goto を除外、`includeStart: false` で起点を外せる。Lit の `<canvas-flow-editor>` にも委譲
+
 ## [0.6.0] - 2026-09-18
 
 ### 追加
@@ -72,7 +77,8 @@
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html`
 
-[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.3.0...v0.4.0

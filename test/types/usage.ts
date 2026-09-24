@@ -232,6 +232,16 @@ const focused = editor.selectFocused();
 const focusedAdd = editor.selectFocused({ additive: true, direction: 'both' });
 console.log(focused?.nodes.length, focusedAdd?.edges.length);
 editor.on('focus:select', (d) => console.log(d.mode, d.nodes.length, d.edges.length));
+const preview = editor.focusPreview('n1');
+const previewMulti = editor.focusPreview(['n1', 'n2'], {
+  mode: 'neighbors',
+  direction: 'downstream',
+  depth: 2,
+  links: false,
+  includeStart: false,
+});
+console.log(preview.mode, preview.direction, preview.nodes.length, preview.edges.length, preview.links.length);
+console.log(previewMulti.nodes.join(','));
 const reach = graph.connectedTo(['n1'], { depth: 1, includeStart: false });
 console.log(reach.nodes.size, reach.edges.size);
 
@@ -254,6 +264,7 @@ el.setFocusMode('neighbors', { depth: 2 });
 el.addEventListener('focus-change', (e) => console.log(e.detail.mode, e.detail.direction, e.detail.nodes.length));
 el.addEventListener('focus-select', (e) => console.log(e.detail.mode, e.detail.nodes.length, e.detail.edges.length));
 console.log(el.selectFocused()?.nodes.length, el.selectFocused({ additive: true })?.edges.length);
+console.log(el.focusPreview('n1', { direction: 'both' }).nodes.length, el.focusPreview(['n1']).links.length);
 console.log(el.canUndo, el.toJSON().nodes.length);
 el.addChild('parent', { title: '子', items: [{ id: 'q', label: 'q', input: true }] });
 console.log(el.childrenOf('parent').length, el.rootNodeOf('parent')?.id);
@@ -438,6 +449,9 @@ graph.setParent('kid', 123);
 
 // @ts-expect-error additive は boolean
 editor.selectFocused({ additive: 'yes' });
+
+// @ts-expect-error direction は決まった文字列だけ
+editor.focusPreview('n1', { direction: 'sideways' });
 
 // @ts-expect-error run は関数
 el.contextMenuItems = [{ id: 'x', label: 'x', run: 'nope' }];

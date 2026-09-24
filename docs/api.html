@@ -102,7 +102,7 @@
 <div class="layout">
 <nav class="side" id="nav">
   <div class="brand"><a href="./" style="color:inherit">canvas-flow</a></div>
-  <div class="version">NodeEditor API 仕様書 · v0.6.0</div>
+  <div class="version">NodeEditor API 仕様書 · v0.7.0</div>
   <input id="filter" type="search" placeholder="API を絞り込み…" aria-label="API を絞り込み" />
   <h4>はじめに</h4>
   <ul>
@@ -293,7 +293,7 @@ editor.setEdgeType('straight', ['e1']);     // e1 だけ
 editor.graph.addEdge({ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in', type: 'step' });</code></pre>
 <p>ドラッグ中の仮コネクタ・ヒットテスト・削除アイコンの位置（形状の中点）・簡易表示（LOD）も同じ形に従います。<code>'line'</code> → <code>'straight'</code>、<code>'orthogonal'</code> / <code>'smoothstep'</code> → <code>'step'</code> の別名は <code>normalizeEdgeType()</code> が丸めます。</p>
 </section>
-<section class="api" data-name="setFocusMode focusMode focusSet selectFocused selectConnected 強調を選択 強調 ハイライト 薄く dim focus connected neighbors つながり">
+<section class="api" data-name="setFocusMode focusMode focusSet focusPreview selectFocused selectConnected 強調を選択 強調 ハイライト 薄く dim focus connected neighbors つながり">
 <h3><span class="tag method">method</span><code>setFocusMode(mode, options?)</code> / <span class="tag prop">getter/setter</span><code>focusMode</code></h3>
 <p>選択ノードと<strong>同じ流れにある要素</strong>だけをはっきり描き、それ以外を薄くします。選択が空のときは自動的に解除されます。
 対象が変わると <code>'focus:change'</code>（<code>{ mode, direction, nodes, edges }</code>）が発火します。</p>
@@ -332,6 +332,25 @@ editor.selectFocused({ additive: true });          // いまの選択に加え�
 editor.selectFocused({ direction: 'downstream' }); // 向きを指定して辿り直す</code></pre>
 <p>強調表示が無効（<code>focusMode: 'off'</code>）のときは <code>focusDirection</code> / <code>focusDepth</code> の設定どおりに繋がりを辿って選択します。選択ノードが無ければ何もせず <code>null</code>。実行すると <code>'focus:select'</code>（<code>{ mode, nodes, edges }</code>）が発火します。選択操作なので <code>readOnly</code> でも使えます。</p>
 <div class="note">選択したあとは、その範囲がそのまま強調対象として固定されます（次に選択・グラフを変えるまで）。固定しないと「選択が増えた分だけ強調範囲も広がる」ため、押すたびに範囲が育ってしまいます。</div>
+<h3><span class="tag method">method</span><code>focusPreview(nodeOrIds, options?) → { mode, direction, nodes, edges, links }</code></h3>
+<p>指定したノードを<strong>選択したと仮定したとき</strong>に強調表示される要素を返します。選択も強調表示の設定も一切変えない<strong>問い合わせ専用</strong>のメソッドで、戻り値は <code>'focus:change'</code> の detail と同じ形の ID の配列です。一覧表示・集計・確認ダイアログなど、画面を触らずに範囲だけ知りたいときに使います。</p>
+<table>
+  <tr><th>引数 / オプション</th><th>意味</th></tr>
+  <tr><td><code>nodeOrIds</code></td><td>起点にするノード。ID・ノード・その配列のいずれでも可。存在しない ID は無視される</td></tr>
+  <tr><td><code>mode</code></td><td><code>'connected'</code> / <code>'neighbors'</code> / <code>'off'</code>。省略時は現在の <code>focusMode</code>（下の注意を参照）</td></tr>
+  <tr><td><code>direction</code></td><td>辿る向き。省略時は現在の <code>focusDirection</code></td></tr>
+  <tr><td><code>depth</code></td><td><code>'neighbors'</code> のときの段数。省略時は現在の <code>focusDepth</code>（既定 1）</td></tr>
+  <tr><td><code>links</code></td><td><code>false</code> で <a href="#m-goto">goto</a> を辿らない（既定 <code>true</code>）</td></tr>
+  <tr><td><code>includeStart</code></td><td><code>false</code> で起点のノード自身を結果から外す（既定 <code>true</code>）</td></tr>
+</table>
+<pre><code>editor.focusPreview('n1');
+// → { mode: 'connected', direction: 'lineage', nodes: ['n1', …], edges: […], links: […] }
+
+editor.focusPreview(['n1', 'n2'], { mode: 'neighbors', depth: 2, direction: 'downstream' });
+editor.focusPreview('n1', { includeStart: false });   // 起点を外す
+editor.focusPreview('n1', { links: false });          // goto は辿らない</code></pre>
+<div class="note">現在の <code>focusMode</code> が <code>'off'</code> のときは <code>'connected'</code> として計算します。問い合わせ用の API なので「いまは off だから空」より、辿った結果が返る方が役に立つためです。空の結果がほしいときは <code>mode: 'off'</code> を<strong>明示</strong>してください。</div>
+<p>実際に選択したときの <code>focusSet()</code> と同じ結果になります（違いは、選択中のコネクタが含まれない点だけ）。選択も描画も変えないので <code>readOnly</code> でも使えます。</p>
 <h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>selectConnected(options?) → { nodes, edges } | null</code></h3>
 <p>繋がっている要素を選択に加えます（まとめて移動・削除したいとき）。探索だけしたい場合は
 <code>graph.connectedTo(startIds, { depth, direction, includeStart })</code> を直接呼べます。</p>
@@ -965,7 +984,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>notes</code></td><td>有効</td><td><code>"false"</code> で<a href="#m-note">メモ</a>のバッジを描かない</td></tr>
   <tr><td><code>context-menu</code></td><td>有効</td><td><code>"false"</code> で内蔵の右クリックメニューを無効（<code>read-only</code> では出ない）。項目は <code>contextMenuItems</code> で差し替え</td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>selectConnected</code>, <code>setNote</code>, <code>noteOf</code>, <code>notesList</code>, <code>editNote</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>focusPreview</code>, <code>selectConnected</code>, <code>setNote</code>, <code>noteOf</code>, <code>notesList</code>, <code>editNote</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -995,7 +1014,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <p class="muted">キーボードは <code>document</code> で受け、<code>keyboardScope</code> 内を最後にポインタ操作していて入力欄にフォーカスが無いときだけ処理します。</p>
 </section>
 
-<p class="muted" style="margin-top:48px">canvas-flow v0.6.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
+<p class="muted" style="margin-top:48px">canvas-flow v0.7.0 · この仕様書は <code>docs/api.html</code> として同梱されています。デモは <a href="demo.html">docs/demo.html</a>。</p>
 </main>
 </div>
 <script>

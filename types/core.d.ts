@@ -987,6 +987,29 @@ export type FocusMode = 'off' | 'connected' | 'neighbors';
  *  - 'both' … 向きを問わず繋がっているもの全部
  */
 export type FocusDirection = 'lineage' | 'downstream' | 'upstream' | 'both';
+
+/** `focusPreview()` のオプション */
+export interface FocusPreviewOptions {
+  /** 省略時は現在の focusMode（off なら connected として計算） */
+  mode?: FocusMode | boolean;
+  /** 省略時は現在の focusDirection */
+  direction?: FocusDirection;
+  /** neighbors のときの段数。省略時は現在の focusDepth（既定 1） */
+  depth?: number;
+  /** goto（ID 指定の遷移）も辿るか（既定 true） */
+  links?: boolean;
+  /** 起点のノード自身を結果に含めるか（既定 true） */
+  includeStart?: boolean;
+}
+
+/** `focusPreview()` の戻り値。`focus:change` の detail と同じ形 */
+export interface FocusPreview {
+  mode: FocusMode;
+  direction: FocusDirection;
+  nodes: string[];
+  edges: string[];
+  links: string[];
+}
 export interface FocusSet {
   /** 辿った goto のキー */
   links?: Set<string>;
@@ -1146,6 +1169,15 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
     depth?: number;
     direction?: FocusDirection;
   }): { nodes: string[]; edges: string[] } | null;
+  /**
+   * 指定したノードを選択したと仮定したときに強調表示される要素を返す（問い合わせ専用。
+   * 選択も設定も変えない）。省略した項目は現在の設定を使い、`focusMode` が `'off'` のときは
+   * `'connected'` として計算する（`mode: 'off'` を明示したときだけ空）。
+   */
+  focusPreview(
+    nodeOrIds: string | Node | Iterable<string | Node>,
+    options?: FocusPreviewOptions,
+  ): FocusPreview;
 
   /* 移動単位 */
   setMoveSnap(step: number): void;

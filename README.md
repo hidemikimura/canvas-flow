@@ -308,6 +308,7 @@ el.theme = {
 el.editor.focusSet();          // → { nodes: Set, edges: Set } | null（無効・未選択なら null）
 el.selectFocused();            // 強調表示されている要素をそのまま選択（下記）
 el.selectConnected();          // 繋がっている要素を選択に加える（まとめて移動・削除したいとき）
+el.focusPreview('n1');         // 選択せずに「n1 を選んだら強調される範囲」を問い合わせ（下記）
 el.editor.graph.connectedTo(['n1'], { depth: 1, direction: 'lineage' });  // 純粋な探索だけ（この API の既定は 'both'）
 ```
 
@@ -326,6 +327,23 @@ el.selectFocused({ direction: 'downstream' });        // 向きや depth を指�
 強調表示が無効（`focus-mode="off"`）のときは `focusDirection` / `focusDepth` の設定どおりに繋がりを辿って選択します。選択ノードが無いときは何もせず `null` を返します。選択後は `focus-select`（`{ mode, nodes, edges }`）が発火します。読み取り専用（`read-only`）でも選択は操作なので使えます。
 
 選択したあとは、その範囲がそのまま強調対象として固定されます（次に選択やグラフを変えるまで）。固定しないと「選択が増えた分だけ強調範囲も広がる」ため、ボタンを押すたびに範囲が育ってしまうためです。
+
+##### 選択せずに「強調される範囲」だけ知る（`focusPreview`）
+
+そのノードを選んだら何が強調されるかを、**選択も設定も変えずに**問い合わせられます。一覧表示や集計、確認ダイアログなど、画面を触らずに範囲だけ知りたいときに使ってください。
+
+```js
+el.focusPreview('n1');
+// → { mode: 'connected', direction: 'lineage', nodes: ['n1', ...], edges: [...], links: [...] }
+
+el.focusPreview(['n1', 'n2'], { mode: 'neighbors', depth: 2, direction: 'downstream' });
+el.focusPreview('n1', { includeStart: false });   // 起点のノード自身を外す
+el.focusPreview('n1', { links: false });          // goto は辿らない
+```
+
+戻り値は `focus-change` イベントの detail と同じ形の**ID の配列**です。`mode` / `direction` / `depth` は渡したものを使い、省略したものは現在の設定（`focus-mode` / `focusDirection` / `focusDepth`）を使います。ただし現在の設定が `off` のときは `connected` として計算します（問い合わせ用なので「いまは off だから空」より結果が返る方が役に立つため）。空の結果がほしいときは `mode: 'off'` を明示してください。存在しないノード ID は無視されます。読み取り専用でも使えます。
+
+実際に選択したときの `focusSet()` と同じ結果になります。違いは、選択中のコネクタが結果に含まれない点だけです（問い合わせ時点では選択がないため）。
 
 #### ノードの中の子ノード（`childs`）
 
