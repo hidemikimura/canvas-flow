@@ -123,6 +123,7 @@
     <li><a href="#m-edit">編集コマンド</a></li>
     <li><a href="#m-add">ノード追加</a></li>
     <li><a href="#m-childs">子ノード</a></li>
+    <li><a href="#m-group">グループ</a></li>
     <li><a href="#m-note">メモ（note）</a></li>
     <li><a href="#m-goto">goto（ID 指定の遷移）</a></li>
     <li><a href="#m-context">右クリックメニュー</a></li>
@@ -402,7 +403,7 @@ editor.focusPreview('n1', { links: false });          // goto は辿らない</c
 </section>
 <section class="api" data-name="hitTest edgeAt edgeDeleteIconAt">
 <h3><span class="tag method">method</span><code>hitTest(wx, wy) → Hit</code></h3>
-<p>ワールド座標にある要素を返します。判定の優先順位は 削除アイコン &gt; リサイズグリップ &gt; ポート &gt; ノード（ヘッダ／項目／本体）&gt; コネクタ です。</p>
+<p>ワールド座標にある要素を返します。判定の優先順位は 削除アイコン &gt; リサイズグリップ &gt; ポート &gt; ノード（ヘッダ／項目／本体）&gt; コネクタ &gt; <a href="#m-group">グループ</a> です（グループは背面にあるので最後）。</p>
 <table>
   <tr><th><code>type</code></th><th>追加フィールド</th><th>意味</th></tr>
   <tr><td><code>'edge-delete'</code></td><td><code>edge</code></td><td>表示中のコネクタ削除アイコン</td></tr>
@@ -411,6 +412,8 @@ editor.focusPreview('n1', { links: false });          // goto は辿らない</c
   <tr><td><code>'item'</code></td><td><code>node</code>, <code>item</code></td><td>ノード内の項目行</td></tr>
   <tr><td><code>'node'</code></td><td><code>node</code>, <code>header: boolean</code></td><td>ノードのヘッダまたは本体</td></tr>
   <tr><td><code>'edge'</code></td><td><code>edge</code></td><td>コネクタ（線から約 6px 以内）</td></tr>
+  <tr><td><code>'group-resize'</code></td><td><code>group</code></td><td>グループ右下のリサイズグリップ</td></tr>
+  <tr><td><code>'group'</code></td><td><code>group</code>, <code>header: boolean</code></td><td>グループの空き部分（<code>header</code> は上端のラベル帯）</td></tr>
   <tr><td><code>'none'</code></td><td>–</td><td>空白</td></tr>
 </table>
 <h3><span class="tag method">method</span><code>edgeAt(wx, wy) → Edge | null</code></h3>
@@ -421,13 +424,13 @@ editor.focusPreview('n1', { links: false });          // goto は辿らない</c
 
 <h2 id="m-selection">選択</h2>
 <section class="api" data-name="select toggleSelect clearSelection selectAll selectInRect selection">
-<h3><span class="tag method">method</span><code>select({ nodes?, edges? }, { additive? })</code></h3>
-<p>ID 配列を選択します。<code>additive: true</code> で既存の選択に追加。<code>'selection:change'</code> を発火します。</p>
-<h3><span class="tag method">method</span><code>toggleSelect({ nodes?, edges? })</code></h3>
+<h3><span class="tag method">method</span><code>select({ nodes?, edges?, groups? }, { additive? })</code></h3>
+<p>ID 配列を選択します。<code>additive: true</code> で既存の選択に追加。<code>'selection:change'</code>（<code>{ nodes, edges, groups }</code>）を発火します。選択状態は <code>editor.selection.nodes / edges / groups</code>（Set）。</p>
+<h3><span class="tag method">method</span><code>toggleSelect({ nodes?, edges?, groups? })</code></h3>
 <p>指定 ID の選択状態を反転します。</p>
 <h3><span class="tag method">method</span><code>clearSelection()</code> / <code>selectAll()</code></h3>
 <h3><span class="tag method">method</span><code>selectInRect(rect, { additive? })</code></h3>
-<p>ワールド矩形に<em>完全に</em>含まれるノードと、その間のコネクタを選択します（範囲選択と同じ挙動）。</p>
+<p>ワールド矩形に<em>完全に</em>含まれるノード・グループと、その間のコネクタを選択します（範囲選択と同じ挙動）。</p>
 <pre><code>editor.select({ nodes: ['a', 'b'] });
 editor.select({ edges: ['e1'] }, { additive: true });
 console.log(editor.selectedNodes.map(n =&gt; n.title));</code></pre>
@@ -537,6 +540,58 @@ editor.on('canvas:dblclick', ({ x, y }) =&gt; editor.addNodeAt({ title: '新規'
 <p>親を付け替えます。<code>parentId</code> に <code>null</code> を渡すと独立させます。自分の子孫を親にするような循環は <code>false</code> を返して拒否します。</p>
 <h3><span class="tag method">method</span><code>childrenOf(node) → Node[]</code> / <code>rootNodeOf(node) → Node | null</code></h3>
 <p>子ノードの配列（表示順）と、一番外側の親（自分が子でなければ自分自身）。引数はノードでも ID でも渡せます。さらに細かい問い合わせは <a href="#graph">Graph</a> 側の <code>isChild</code> / <code>parentOf</code> / <code>rootOf</code> / <code>depthOf</code> / <code>descendantIds</code> / <code>rootNodes</code> を使います。</p>
+</section>
+
+<h2 id="m-group">グループ（ラベル付きの枠）</h2>
+<section class="api" data-name="group groups グループ 枠 フレーム LabeledGroup addGroup updateGroup removeGroup groupNodes groupSelection ungroup fitGroup resizeGroup setNodeGroup groupOf groupMembers groupAt groupOnDrop updateGroupMembership">
+<p>ノードの背面に、左上にラベルの付いた枠を置けます（React Flow の <a href="https://reactflow.dev/ui/components/labeled-group-node">LabeledGroupNode</a> 相当）。ノードは <code>group</code> にグループの ID を持つとメンバーになり、枠を動かすとメンバーごと動きます。</p>
+<pre><code>editor.load({
+  groups: [{ id: 'g1', label: '前処理', x: 0, y: 0, width: 560, height: 160 }],
+  nodes: [
+    { id: 'a', title: '受付', x: 24, y: 48, output: true, group: 'g1' },
+    { id: 'b', title: '振り分け', x: 312, y: 48, input: true, group: 'g1' },
+  ],
+  edges: [{ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in' }],
+});
+editor.groupNodes(['a', 'b'], { label: '前処理' });   // ノード群を囲むグループを作る（Undo 1 回で戻る）
+editor.ungroup(['g1']);                               // 枠だけ消してメンバーを残す</code></pre>
+<table>
+  <tr><th>項目</th><th>ふるまい</th></tr>
+  <tr><td>描画</td><td>すべてのノード・コネクタの背面に追加順で重ねる。ラベルは左上の内側にタブで出る（選択中は強調色）。縮小しすぎて読めないときはラベルを省く</td></tr>
+  <tr><td>移動</td><td>枠の空き部分・ラベルのドラッグでメンバーごと移動。矢印キー・<code>moveSelection()</code> も同じ。ノードの上はノードの操作が優先</td></tr>
+  <tr><td>出し入れ</td><td>ノードをドラッグで置くと、ノード（子ノード込みの外枠）の中心が入っているグループのうち一番小さいものに入り、どこにも入っていなければ外れる。移動と同じ Undo 単位。貼り付け・複製・<code>insertJSON</code>・<code>addNodeAt</code>（<code>group</code> 未指定時）で置いたときも同じ規則。<code>groupOnDrop: false</code>（Lit: <code>group-on-drop="false"</code>）で無効</td></tr>
+  <tr><td>大きさ</td><td>右下グリップで幅・高さを変える（最小 <code>theme.group.minWidth</code> / <code>minHeight</code>、<code>moveSnap</code> にも揃う）。自動では広がらない</td></tr>
+  <tr><td>ラベル</td><td>上端の帯（<code>theme.group.labelHeight</code>）をダブルクリックで <code>group:edit</code>。Lit 版はインライン編集</td></tr>
+  <tr><td>削除・複製</td><td>グループを選んで <code>deleteSelection()</code> するとメンバーごと消える。複製・コピー＆貼り付け・<code>exportData({ selectionOnly })</code> はメンバーと内部のコネクタも一緒</td></tr>
+  <tr><td>子ノード・入れ子</td><td>グループに入るのは親を持たないノードだけ（子は親に従う）。グループの中にグループは入れられない</td></tr>
+  <tr><td>JSON</td><td>トップレベルの <code>groups</code> 配列とノードの <code>group</code>。存在しないグループを指す <code>group</code> は読み込み時に無視される</td></tr>
+</table>
+<h3><span class="tag type">type</span><code>Group</code></h3>
+<table>
+  <tr><th>フィールド</th><th>型</th><th>説明</th></tr>
+  <tr><td><code>id</code></td><td>string</td><td>一意な ID（省略時は自動生成）</td></tr>
+  <tr><td><code>label</code></td><td>string</td><td>左上のラベル（既定 <code>'Group'</code>）</td></tr>
+  <tr><td><code>x</code>, <code>y</code>, <code>width</code>, <code>height</code></td><td>number</td><td>位置と大きさ（既定 320 × 200）</td></tr>
+  <tr><td><code>style</code></td><td>object?</td><td><code>theme.group.*</code> の上書き</td></tr>
+  <tr><td><code>data</code></td><td>any?</td><td>任意データ</td></tr>
+</table>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>addGroup(spec) → Group | null</code> / <code>updateGroup(id, patch) → Group | null</code></h3>
+<p>グループの追加と更新（<code>label</code> / <code>x</code> / <code>y</code> / <code>width</code> / <code>height</code> / <code>style</code> / <code>data</code>）。<code>updateGroup</code> で位置を変えてもメンバーは動きません（一緒に動かすなら <code>graph.moveGroups(ids, dx, dy)</code>）。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>removeGroup(id, { withMembers = false }) → boolean</code></h3>
+<p>既定では枠だけ消し、メンバーはグループから外れて残ります。<code>withMembers: true</code> でメンバーも削除します。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>groupNodes(nodeIds, { label?, padding?, style?, data?, id?, select = true }) → Group | null</code> / <code>groupSelection(options?)</code></h3>
+<p>ノード群を余白（既定 <code>theme.group.padding</code>）とラベル帯込みで囲むグループを作り、メンバーにします。既に別のグループにいたノードは新しいグループへ移ります。<code>groupSelection</code> は選択ノード（と選択中グループのメンバー）が対象で、Ctrl/Cmd + G と同じです。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>ungroup(ids?) → string[]</code></h3>
+<p>グループを解除します（枠だけ消す。省略時は選択中のグループ）。解除したグループのメンバーを選択し、その ID を返します。Ctrl/Cmd + Shift + G と同じです。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>resizeGroup(id, width, height)</code> / <code>fitGroup(id, { padding? })</code></h3>
+<p>大きさを変える / メンバーにぴったり合わせる。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>setNodeGroup(nodeIds, groupId | null) → string[]</code></h3>
+<p>ノードをグループに入れる / 外す。子ノードを渡すと一番外側の親が対象になります。所属が変わったノード ID を返します。</p>
+<h3><span class="tag method">method</span><span class="tag undo">Undo 可</span><code>updateGroupMembership(nodeIds, { exclude? }) → Array&lt;{ id, from, to }&gt;</code></h3>
+<p>置いた位置でグループへの出入りを決め直します（ドラッグの終了時に自動で呼ばれるものと同じ）。<code>exclude</code> のグループは判定から除き、そのグループのメンバーはそのまま残します。変化があれば <code>group:membership</code> を発火します。</p>
+<h3><span class="tag method">method</span><code>getGroup(id)</code> / <code>groupAt(wx, wy)</code> / <code>groupOf(node) → Group | null</code> / <code>groupMembers(group) → Node[]</code> / <span class="tag prop">getter</span><code>selectedGroups</code></h3>
+<p>取得・その位置のグループ（手前のもの）・ノードが属するグループ（子ノードは一番外側の親のグループ）・メンバー・選択中のグループ。</p>
+<div class="note">右クリックメニューには、グループの上で「ラベルを編集 / メンバーに合わせる / メンバーを選択 / 複製 / グループを解除 / メンバーごと削除 / ここにノードを追加」、ノードの上で「グループ化」「（グループ名）から外す」、空白で「ここにグループを追加」が出ます。Lit 版は <code>editGroupLabel(id)</code> でラベル編集を開始できます。</div>
 </section>
 
 <h2 id="m-note">メモ（note）</h2>
@@ -772,14 +827,20 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
 <h3><span class="tag event">event</span>状態・モデルの変化</h3>
 <table>
   <tr><th>コア</th><th>Lit</th><th>payload</th><th>タイミング</th></tr>
-  <tr><td><code>selection:change</code></td><td><code>selection-change</code></td><td><code>{ nodes: string[], edges: string[] }</code></td><td>選択が変わった</td></tr>
+  <tr><td><code>selection:change</code></td><td><code>selection-change</code></td><td><code>{ nodes: string[], edges: string[], groups: string[] }</code></td><td>選択が変わった</td></tr>
   <tr><td><code>viewport:change</code></td><td><code>viewport-change</code></td><td><code>{ tx, ty, zoom }</code></td><td>パン／ズームの操作が終わった（ホイールは 120ms 間引き）</td></tr>
   <tr><td><code>graph:change</code></td><td><code>graph-change</code></td><td>–</td><td>モデルが変わった（batch 内はまとめて 1 回）</td></tr>
   <tr><td><code>node:add</code> / <code>node:remove</code> / <code>node:change</code></td><td><code>node-add</code> / <code>node-remove</code> / <code>node-change</code></td><td><code>Node</code></td><td>ノードの追加／削除／プロパティ変更</td></tr>
   <tr><td><code>nodes:move</code></td><td><code>nodes-move</code></td><td><code>{ ids, dx, dy }</code></td><td>移動のたび（ドラッグ中も）</td></tr>
-  <tr><td><code>nodes:move:end</code></td><td><code>nodes-move-end</code></td><td><code>{ ids, dx, dy, start }</code></td><td>ドラッグ移動の終了</td></tr>
+  <tr><td><code>nodes:move:end</code></td><td><code>nodes-move-end</code></td><td><code>{ ids, groups, dx, dy, start }</code></td><td>ドラッグ移動の終了（<code>groups</code> は一緒に動かしたグループ）</td></tr>
   <tr><td><code>node:resize:end</code></td><td><code>node-resize-end</code></td><td><code>{ id, from, to }</code></td><td>リサイズの終了</td></tr>
   <tr><td><code>edge:add</code> / <code>edge:remove</code> / <code>edge:change</code></td><td><code>edge-add</code> / …</td><td><code>Edge</code></td><td>コネクタの追加／削除／変更</td></tr>
+  <tr><td><code>group:add</code> / <code>group:remove</code> / <code>group:change</code></td><td><code>group-add</code> / …</td><td><code>Group</code></td><td><a href="#m-group">グループ</a>の追加／削除／変更</td></tr>
+  <tr><td><code>groups:move</code></td><td><code>groups-move</code></td><td><code>{ ids, dx, dy }</code></td><td>グループの枠が動いた（メンバーの移動は <code>nodes:move</code>）</td></tr>
+  <tr><td><code>group:click</code></td><td><code>group-click</code></td><td><code>{ group, header, x, y, … }</code></td><td>グループをクリックした（<code>header</code> はラベル帯）</td></tr>
+  <tr><td><code>group:edit</code></td><td><code>group-edit</code></td><td><code>{ group, rect, screenRect }</code></td><td>ラベルをダブルクリックした（Lit 側は <code>preventDefault()</code> でインライン編集を止められる）</td></tr>
+  <tr><td><code>group:resize:end</code></td><td><code>group-resize-end</code></td><td><code>{ id, from: {width, height}, to: {width, height} }</code></td><td>グループのリサイズの終了</td></tr>
+  <tr><td><code>group:membership</code></td><td><code>group-membership</code></td><td><code>{ nodes: [{ id, from, to }] }</code></td><td>ドラッグで置いたノードがグループに入った／出た</td></tr>
   <tr><td><code>history:change</code></td><td><code>history-change</code></td><td><code>{ canUndo, canRedo }</code></td><td>履歴の状態が変わった</td></tr>
   <tr><td><code>import</code> / <code>export</code></td><td><code>import</code> / <code>export</code></td><td><code>{ mode, nodes, edges, warnings }</code> / <code>{ data, selectionOnly }</code></td><td>JSON 入出力</td></tr>
   <tr><td><code>layout</code></td><td><code>layout</code></td><td><code>{ nodes: string[] }</code></td><td>自動整列を適用した</td></tr>
@@ -828,6 +889,7 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>items</code></td><td>NodeItem[]</td><td>項目。高さは <code>headerHeight + items.length × itemHeight + padding</code></td></tr>
   <tr><td><code>childs</code></td><td>Node[]?</td><td><a href="#m-childs">子ノード</a>。項目の下に縦に並ぶ。位置と幅は親が自動計算（子の <code>x</code> / <code>y</code> / <code>width</code> は無視される）。何段でも入れ子にできる</td></tr>
   <tr><td><code>parent</code></td><td>string?</td><td>子ノードにだけ入る親の ID（読み取り専用。変更は <code>setParent()</code>）</td></tr>
+  <tr><td><code>group</code></td><td>string?</td><td>所属する<a href="#m-group">グループ</a>の ID（親を持たないノードのみ。存在しないグループは無視）</td></tr>
   <tr><td><code>goto</code></td><td><a href="#m-goto">GotoSpec</a>?</td><td>コネクタを使わない ID 指定の遷移先。<code>'n1'</code> / <code>['n1','n2']</code> / <code>{to:'n1', label:'戻る'}</code></td></tr>
   <tr><td><code>note</code></td><td><a href="#m-note">NoteSpec</a>?</td><td>メモ。<code>'要確認'</code> / <code>{text:'要確認', color:'amber'}</code>。ノードの外側にバッジで出る</td></tr>
   <tr><td><code>showPorts</code></td><td>boolean?</td><td><code>false</code> で全ポートの丸を非表示</td></tr>
@@ -925,10 +987,15 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>nodePorts(node, { visibleOnly? })</code> / <code>portPosition(nodeId, key)</code> / <code>itemRect(node, itemId)</code></td><td>ポート位置・項目矩形</td></tr>
   <tr><td><code>edgeGeometry(edge)</code> / <code>edgePoint(edge, t = 0.5)</code> / <code>edgeRect(edge)</code> / <code>edgeType(edge)</code></td><td>形状（<code>{ type, x1, y1, x2, y2, points, c1x… }</code>）・形状上の点（折れ線は道のり比）・外接矩形・描画方法</td></tr>
   <tr><td><code>nodesInRect(rect)</code> / <code>edgesInRect(rect)</code> / <code>nodesFullyInRect(rect)</code></td><td>空間インデックスによる範囲問い合わせ</td></tr>
-  <tr><td><code>bounds() → rect | null</code></td><td>全ノードを囲む矩形</td></tr>
-  <tr><td><code>duplicateNodes(ids, offset) → { nodes, edges, idMap }</code></td><td>複製</td></tr>
+  <tr><td><code>groups</code>（プロパティ） / <code>addGroup</code> / <code>getGroup</code> / <code>updateGroup</code> / <code>removeGroup(id, { withMembers })</code> / <code>removeGroups</code></td><td><a href="#m-group">グループ</a>（<code>Map</code>、描画順 = 追加順）と追加・取得・更新・削除</td></tr>
+  <tr><td><code>moveGroups(ids, dx, dy, { members = true })</code></td><td>グループを相対移動（既定でメンバーも一緒）</td></tr>
+  <tr><td><code>groupOf(node)</code> / <code>groupMembers(group)</code> / <code>setNodeGroup(ids, groupId | null)</code></td><td>所属の問い合わせ・変更</td></tr>
+  <tr><td><code>groupRect(group)</code> / <code>groupsAt(x, y)</code> / <code>groupsInRect(rect)</code> / <code>groupForRect(rect, { exclude })</code></td><td>矩形・点を含むグループ（手前が先頭）・重なるグループ・中心を含む一番小さいグループ</td></tr>
+  <tr><td><code>nodesBounds(ids)</code> / <code>groupRectFor(ids, padding?)</code> / <code>fitGroup(id, { padding })</code></td><td>ノード群を囲む矩形・ラベル帯込みの枠の矩形・メンバーに合わせる</td></tr>
+  <tr><td><code>bounds() → rect | null</code></td><td>全ノード・全グループを囲む矩形</td></tr>
+  <tr><td><code>duplicateNodes(ids, offset, { groupIds }) → { nodes, edges, groups, idMap, groupMap }</code></td><td>複製（<code>groupIds</code> のグループはメンバーごと）</td></tr>
   <tr><td><code>batch(fn)</code></td><td>複数変更を 1 回の <code>change</code> と 1 つの Undo 項目にまとめる</td></tr>
-  <tr><td><code>toJSON()</code> / <code>load(data)</code> / <code>clear()</code></td><td>直列化（子は <code>childs</code> に入れ子）・置き換え・全消去</td></tr>
+  <tr><td><code>toJSON()</code> / <code>load(data)</code> / <code>clear()</code></td><td>直列化（子は <code>childs</code> に入れ子、グループがあれば <code>groups</code>）・置き換え・全消去</td></tr>
   <tr><td><code>rules</code>（プロパティ）</td><td><code>{ maxInputs, maxOutputs, onFull }</code></td></tr>
 </table>
 <p>Graph 自身も <code>on(type, handler)</code> を持ち、<code>change</code>, <code>node:add</code> などに加えて Undo 用の <code>op</code>、<code>load</code>, <code>clear</code> を発火します。</p>
@@ -957,8 +1024,13 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   goto: { stroke: '#94a3b8', strokeWidth: 1.5, dash: [6, 4], arrow: 9,   // ID 指定の遷移の点線
           labelColor, labelFont, labelBg },
   focus: { dimOpacity: 0.12, dimOpacityLod: 0.25, edgeStroke: null, edgeWidth: null },
+  group: { fill, stroke, strokeWidth: 1, dash: null, radius: 10,       // グループの枠
+           labelHeight: 24, labelPadding: 10, labelFont, labelFill, labelColor,
+           selectedStroke, selectedStrokeWidth: 2, hoverStroke,
+           padding: 24,                                                 // メンバーに合わせるときの余白
+           minWidth: 120, minHeight: 80 },
   selectionBox: { fill, stroke },
-  minimap: { background, border, node, selectedNode, viewportFill, viewportStroke },
+  minimap: { background, border, node, selectedNode, group, viewportFill, viewportStroke },
   lodZoom: 0.3      // この拡大率以下で文字・ポート・影を省いた簡易描画
 }</code></pre>
 <p><code>setTheme(patch)</code> で部分上書きします。<code>deleteIcon.radius</code> は画面ピクセル単位（ズームに影響されない）。<code>node.shadow</code> は拡大率 50% 未満では省略されます。</p>
@@ -982,9 +1054,10 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><td><code>edge-type</code></td><td><code>bezier</code></td><td>コネクタの描画方法（<code>bezier</code> / <code>straight</code> / <code>step</code>）</td></tr>
   <tr><td><code>focus-mode</code></td><td><code>off</code></td><td>同じ流れの強調表示（<code>off</code> / <code>connected</code> / <code>neighbors</code>）。向きは <code>setFocusMode(mode, {direction})</code></td></tr>
   <tr><td><code>notes</code></td><td>有効</td><td><code>"false"</code> で<a href="#m-note">メモ</a>のバッジを描かない</td></tr>
+  <tr><td><code>group-on-drop</code></td><td>有効</td><td><code>"false"</code> でドラッグによる<a href="#m-group">グループ</a>への出入りを無効</td></tr>
   <tr><td><code>context-menu</code></td><td>有効</td><td><code>"false"</code> で内蔵の右クリックメニューを無効（<code>read-only</code> では出ない）。項目は <code>contextMenuItems</code> で差し替え</td></tr>
 </table>
-<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>focusPreview</code>, <code>selectConnected</code>, <code>setNote</code>, <code>noteOf</code>, <code>notesList</code>, <code>editNote</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
+<p>委譲メソッド: <code>addNode</code>, <code>addNodeAt</code>, <code>addNodeAtPointer</code>, <code>addNodeAtCenter</code>, <code>getPointer</code>, <code>addEdge</code>, <code>removeNode</code>, <code>removeEdge</code>, <code>updateNode</code>, <code>updateItem</code>, <code>duplicateSelection</code>, <code>deleteSelection</code>, <code>deleteSelectedEdges</code>, <code>autoLayout</code>, <code>setPortVisible</code>, <code>setPortsVisible</code>, <code>setMoveSnap</code>, <code>snapNodes</code>, <code>addChild</code>, <code>detachChild</code>, <code>setParent</code>, <code>childrenOf</code>, <code>rootNodeOf</code>, <code>setEdgeType</code>, <code>setSelectedEdgeType</code>, <code>setFocusMode</code>, <code>selectFocused</code>, <code>focusPreview</code>, <code>selectConnected</code>, <code>setNote</code>, <code>noteOf</code>, <code>notesList</code>, <code>editNote</code>, <code>addGroup</code>, <code>updateGroup</code>, <code>removeGroup</code>, <code>groupNodes</code>, <code>groupSelection</code>, <code>ungroup</code>, <code>fitGroup</code>, <code>setNodeGroup</code>, <code>groupOf</code>, <code>groupMembers</code>, <code>editGroupLabel</code>, <code>setGoto</code>, <code>gotoLinks</code>, <code>gotoSources</code>, <code>closeContextMenu</code>, <code>openContextMenuAt</code>, <code>undo</code>, <code>redo</code>, <code>canUndo</code>, <code>canRedo</code>, <code>zoomIn</code>, <code>zoomOut</code>, <code>resetZoom</code>, <code>fitView</code>, <code>search</code>, <code>focusNode</code>, <code>exportData</code>, <code>exportJSON</code>, <code>downloadJSON</code>, <code>importJSON</code>, <code>insertJSON</code>, <code>insertJSONAtPointer</code>, <code>importFromFile</code>, <code>openImportDialog</code>, <code>toJSON</code>, <code>load</code>。追加イベント: <code>ready</code>（<code>{ editor }</code>）, <code>import-error</code>（<code>{ errors }</code>）。スロット: 既定（canvas 上に重ねる要素）と <code>toolbar</code>（ツールバー末尾）。</p>
 </section>
 
 <h2 id="keys">操作・ショートカット</h2>
@@ -993,14 +1066,17 @@ editor.insertJSON(template, { at: { x: 500, y: 200 } });   // A → (500,200), B
   <tr><th>操作</th><th>動作</th></tr>
   <tr><td>ノードをクリック / ドラッグ</td><td>選択（Shift・Ctrl・Cmd で追加・トグル）/ 選択中ノードをまとめて移動</td></tr>
   <tr><td>ポートをドラッグ</td><td>コネクタ作成（出力 → 入力。上限超過先には繋げない）</td></tr>
-  <tr><td>右下グリップをドラッグ</td><td>幅のリサイズ</td></tr>
+  <tr><td>右下グリップをドラッグ</td><td>幅のリサイズ（グループは幅・高さ）</td></tr>
+  <tr><td>グループの空き部分・ラベルをドラッグ</td><td>グループをメンバーごと移動</td></tr>
+  <tr><td>ノードをグループの中 / 外へドラッグ</td><td>グループに入れる / 外す（<code>groupOnDrop</code>）</td></tr>
   <tr><td>コネクタをクリック / 中央の × をクリック</td><td>選択 / 削除</td></tr>
   <tr><td>空白を左ドラッグ</td><td>パン（<code>dragMode='select'</code> なら範囲選択。Shift で反転）</td></tr>
   <tr><td>中ボタン / Space + ドラッグ</td><td>パン</td></tr>
   <tr><td>ホイール</td><td>ズーム。Shift + ホイールでパン（<code>wheelMode='pan'</code> なら逆）。慣性スクロール中は最初の動作を維持</td></tr>
   <tr><td>2 本指（タッチ）</td><td>ピンチでズーム、同時にパン</td></tr>
-  <tr><td>ダブルクリック</td><td>ヘッダ / 項目: 編集イベント。空白: <code>canvas:dblclick</code></td></tr>
-  <tr><td>Delete / Backspace</td><td>選択を削除</td></tr>
+  <tr><td>ダブルクリック</td><td>ヘッダ / 項目: 編集イベント。グループのラベル: <code>group:edit</code>。空白（グループの空き部分を含む）: <code>canvas:dblclick</code></td></tr>
+  <tr><td>Delete / Backspace</td><td>選択を削除（グループはメンバーごと）</td></tr>
+  <tr><td>Ctrl/Cmd + G / Shift + G</td><td>選択ノードをグループ化 / 選択中のグループを解除</td></tr>
   <tr><td>Shift + Delete / Backspace</td><td>選択範囲内のコネクタだけを削除（ノードは残す）</td></tr>
   <tr><td>Ctrl/Cmd + A / C / V / D</td><td>全選択 / コピー / 貼り付け（カーソル位置）/ 複製</td></tr>
   <tr><td>Ctrl/Cmd + Shift + A</td><td>強調表示されている要素をまとめて選択（<code>selectFocused</code>。ツールバー「強調を選択」も同じ）</td></tr>

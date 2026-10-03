@@ -13,6 +13,9 @@ import type {
   ContextMenuDetail,
   GotoLink,
   GotoSpec,
+  Group,
+  GroupInput,
+  GroupNodesOptions,
   Note,
   NoteSpec,
   Graph,
@@ -76,19 +79,29 @@ export function defaultContextMenuItems(ctx: ContextMenuContext): ContextMenuIte
 
 export interface CanvasFlowEditorEventMap {
   ready: { editor: NodeEditor };
-  'selection-change': { nodes: string[]; edges: string[] };
+  'selection-change': { nodes: string[]; edges: string[]; groups: string[] };
   'viewport-change': { tx: number; ty: number; zoom: number };
   'graph-change': undefined;
   'node-add': Node;
   'node-remove': Node;
   'node-change': Node;
   'nodes-move': { ids: string[]; dx: number; dy: number };
-  'nodes-move-end': { ids: string[]; dx: number; dy: number };
+  'nodes-move-end': { ids: string[]; groups: string[]; dx: number; dy: number };
   'node-resize-end': { id: string; from: number; to: number };
   'edge-add': Edge;
   'edge-remove': Edge;
   'edge-change': Edge;
   'edge-delete-icon': { edge: Edge };
+  'group-add': Group;
+  'group-remove': Group;
+  'group-change': Group;
+  'groups-move': { ids: string[]; dx: number; dy: number };
+  'group-click': { group: Group; header: boolean };
+  /** グループのラベルをダブルクリックした。preventDefault でインライン編集を止められる */
+  'group-edit': { group: Group };
+  'group-resize-end': { id: string; from: { width: number; height: number }; to: { width: number; height: number } };
+  /** ドラッグで置いたノードがグループに入った / 出た */
+  'group-membership': { nodes: Array<{ id: string; from: string | null; to: string | null }> };
   'edges-delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type-change': { type: EdgeType; edges: string[] | null };
   'focus-change': { mode: FocusMode; direction: FocusDirection; nodes: string[]; edges: string[]; links: string[] };
@@ -101,7 +114,7 @@ export interface CanvasFlowEditorEventMap {
   /** メモのバッジをダブルクリックした。preventDefault でインライン編集を止められる */
   'note-edit': { kind: 'node' | 'edge'; id: string; note: Note | null; rect: Rect; screenRect: Rect };
   'history-change': { canUndo: boolean; canRedo: boolean };
-  'canvas-dblclick': Point;
+  'canvas-dblclick': Point & { group?: Group };
   'edge-dblclick': { edge: Edge; at: Point };
   'connect-cancel': { from: { node: string; port: PortKey } };
   'connect-rejected': { node: string; port: PortKey; reason: 'source-full' | 'target-full' };
@@ -109,12 +122,13 @@ export interface CanvasFlowEditorEventMap {
   'item-click': { node: Node; item: NodeItem };
   'edge-click': { edge: Edge };
   'canvas-click': Point;
-  'node-edit': { node: Node; rect: unknown; screenRect: unknown };
-  'item-edit': { node: Node; item: NodeItem; rect: unknown; screenRect: unknown };
+  /** preventDefault で内蔵のインライン編集を止められる。位置が要るときはコアの node:edit の screenRect */
+  'node-edit': { node: Node };
+  'item-edit': { node: Node; item: NodeItem };
   import: ImportResult;
   'import-error': { errors: string[] };
   export: { data: CanvasFlowData; selectionOnly: boolean };
-  insert: { at: Point; anchor: string; nodes: Node[]; edges: Edge[] };
+  insert: { at: Point; anchor: string; nodes: Node[]; edges: Edge[]; groups: Group[] };
   layout: { nodes: string[] };
   render: { nodes: number; edges: number; ms: number };
 }
@@ -164,6 +178,8 @@ export class CanvasFlowEditor extends LitElement {
   contextMenu: boolean;
   /** 属性 `notes`。`"false"` でメモのバッジを描かない（既定 有効） */
   notes: boolean;
+  /** 属性 `group-on-drop`。`"false"` で置いた位置によるグループへの出入りを無効にする（既定 有効） */
+  groupOnDrop: boolean;
   /** 右クリックメニューの項目。配列か、対象ごとに項目を組み立てる関数 */
   contextMenuItems: ContextMenuItem[] | ((ctx: ContextMenuContext) => ContextMenuItem[]) | null;
 
@@ -202,6 +218,23 @@ export class CanvasFlowEditor extends LitElement {
   setParent(id: string, parentId: string | null, index?: number): boolean;
   /** 子ノードの配列（表示順） */
   childrenOf(nodeOrId: Node | string): Node[];
+
+  /* グループ（ラベル付きの枠） */
+  addGroup(spec: GroupInput): Group | null;
+  updateGroup(id: string, patch: Partial<Group>): Group | null;
+  /** 既定ではメンバーを残す。`withMembers: true` でメンバーも削除 */
+  removeGroup(id: string, options?: { withMembers?: boolean }): boolean;
+  groupNodes(nodeIds: Iterable<string>, options?: GroupNodesOptions): Group | null;
+  /** 選択ノードをグループ化する（Ctrl/Cmd+G） */
+  groupSelection(options?: GroupNodesOptions): Group | null;
+  /** 枠だけ消してメンバーを残す（Ctrl/Cmd+Shift+G） */
+  ungroup(ids?: Iterable<string>): string[];
+  fitGroup(id: string, options?: { padding?: number }): Group | null;
+  setNodeGroup(nodeIds: Iterable<string> | string, groupId: string | null): string[];
+  groupOf(nodeOrId: Node | string): Group | null;
+  groupMembers(groupOrId: Group | string): Node[];
+  /** ラベルのインライン編集を開始する */
+  editGroupLabel(id: string): boolean;
   /** 一番外側の親（自分が子でなければ自分自身） */
   rootNodeOf(nodeOrId: Node | string): Node | null;
   getPointer(): { world: Point; screen: Point; inside: boolean } | null;
@@ -228,7 +261,8 @@ export class CanvasFlowEditor extends LitElement {
     nodeOrIds: string | Node | Iterable<string | Node>,
     options?: FocusPreviewOptions,
   ): FocusPreview;
-  autoLayout(options?: AutoLayoutOptions): Map<string, Point> | null;
+  /** 移動対象になったノード ID */
+  autoLayout(options?: AutoLayoutOptions): string[];
   undo(): boolean;
   redo(): boolean;
   get canUndo(): boolean;

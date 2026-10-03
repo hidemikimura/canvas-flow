@@ -88,6 +88,31 @@ export const defaultTheme = {
       purple: '#7c3aed',
     },
   },
+  /**
+   * グループ（ラベル付きの枠）。グループ単位の上書きは group.style で行う。
+   * 左上のラベルは枠の内側に付くタブとして描き、上端の labelHeight の帯がラベルの当たり判定になる。
+   */
+  group: {
+    fill: 'rgba(148,163,184,0.08)',
+    stroke: '#94a3b8',
+    strokeWidth: 1,
+    /** 破線にするなら [6, 4] など（画面ピクセル単位） */
+    dash: null,
+    radius: 10,
+    labelHeight: 24,
+    labelPadding: 10,
+    labelFont: 'bold 12px system-ui, -apple-system, "Segoe UI", sans-serif',
+    labelFill: '#e2e8f0',
+    labelColor: '#334155',
+    selectedStroke: '#3b82f6',
+    selectedStrokeWidth: 2,
+    hoverStroke: '#93c5fd',
+    /** メンバーに合わせる（グループ化・fitGroup）ときの内側の余白 */
+    padding: 24,
+    /** リサイズ時の最小サイズ */
+    minWidth: 120,
+    minHeight: 80,
+  },
   /** goto（ID 指定の遷移）の点線。選択・強調されているときだけ描く */
   goto: {
     stroke: '#94a3b8',
@@ -119,6 +144,7 @@ export const defaultTheme = {
     border: '#c9ced6',
     node: '#94a3b8',
     selectedNode: '#3b82f6',
+    group: '#cbd5e1',
     viewportFill: 'rgba(59,130,246,0.12)',
     viewportStroke: '#3b82f6',
   },

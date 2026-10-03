@@ -118,11 +118,39 @@ function regen() {
   const n = Math.max(1, Number(document.getElementById('count').value) || 1);
   const t0 = performance.now();
   el.load(generate(n));
+  addDemoGroups(n);
   const t1 = performance.now();
   el.editor.viewport.reset();
   el.editor.viewport.panBy(40, 40);
   el.editor.requestRender();
   console.log(`generated ${n} nodes in ${(t1 - t0).toFixed(1)}ms`);
+}
+
+/**
+ * まとまり（8 個ずつ）の 4 つに 1 つについて、先頭の 3 個をグループで囲む。行をまたぐものは囲まない。
+ * グループはラベル付きの枠で、ドラッグするとメンバーごと動く。ノードを外へ出すとグループから外れる
+ */
+const GROUP_STYLES = [
+  null,
+  { fill: 'rgba(59,130,246,0.06)', stroke: '#93c5fd', labelFill: '#dbeafe', labelColor: '#1e40af' },
+  { fill: 'rgba(16,185,129,0.06)', stroke: '#6ee7b7', labelFill: '#d1fae5', labelColor: '#065f46' },
+  { fill: 'rgba(245,158,11,0.07)', stroke: '#fcd34d', labelFill: '#fef3c7', labelColor: '#92400e', dash: [6, 4] },
+];
+function addDemoGroups(n) {
+  const ed = el.editor;
+  const cols = Math.ceil(Math.sqrt(n));
+  for (let k = 0, made = 0; k * 8 < n; k += 4) {
+    const first = k * 8;
+    const last = Math.min(n, first + 3) - 1;
+    if (Math.floor(first / cols) !== Math.floor(last / cols)) continue;
+    const ids = [];
+    for (let i = first; i <= last; i++) ids.push(`n${i}`);
+    const style = GROUP_STYLES[made % GROUP_STYLES.length];
+    ed.groupNodes(ids, { label: `グループ ${made + 1}`, select: false, ...(style ? { style } : null) });
+    made++;
+  }
+  // 読み込み直後の状態を Undo の起点にする
+  ed.history.clear();
 }
 
 el.addEventListener('ready', () => {
@@ -145,9 +173,12 @@ const newNodeSpec = () => ({
 });
 
 // 空白ダブルクリック → その位置（ヘッダ中央）に追加
+// グループの中の空き部分なら、置いた位置のグループに自動で入る
 el.addEventListener('canvas-dblclick', (e) => {
   el.addNodeAt(newNodeSpec(), { at: { x: e.detail.x, y: e.detail.y }, anchor: 'header' });
 });
+el.addEventListener('group-membership', (e) => console.log('group-membership', e.detail.nodes));
+el.addEventListener('group-click', (e) => console.log('group-click', e.detail.group.id, e.detail.header ? 'label' : 'body'));
 
 // N キー → マウス位置に追加（canvas 外なら画面中央）
 document.addEventListener('keydown', (e) => {
@@ -253,7 +284,8 @@ document.getElementById('theme').addEventListener('change', (e) => {
         node: { fill: '#1e293b', stroke: '#475569', headerFill: '#334155', titleColor: '#f1f5f9', textColor: '#cbd5e1', itemSeparator: '#334155', shadow: 'rgba(0,0,0,0.4)' },
         edge: { stroke: '#64748b' },
         port: { fill: '#1e293b', stroke: '#94a3b8', connectedFill: '#94a3b8' },
-        minimap: { background: 'rgba(15,23,42,0.9)', border: '#475569', node: '#64748b' },
+        group: { fill: 'rgba(148,163,184,0.07)', stroke: '#475569', labelFill: '#334155', labelColor: '#e2e8f0' },
+        minimap: { background: 'rgba(15,23,42,0.9)', border: '#475569', node: '#64748b', group: '#475569' },
       }
     : {
         background: '#f6f7f9',
@@ -261,7 +293,8 @@ document.getElementById('theme').addEventListener('change', (e) => {
         node: { fill: '#ffffff', stroke: '#c9ced6', headerFill: '#eef1f5', titleColor: '#1f2933', textColor: '#3b4652', itemSeparator: '#eef1f5', shadow: 'rgba(0,0,0,0.08)' },
         edge: { stroke: '#7c8794' },
         port: { fill: '#ffffff', stroke: '#64748b', connectedFill: '#64748b' },
-        minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8' },
+        group: { fill: 'rgba(148,163,184,0.08)', stroke: '#94a3b8', labelFill: '#e2e8f0', labelColor: '#334155' },
+        minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8', group: '#cbd5e1' },
       };
 });
 
@@ -320,6 +353,17 @@ const PALETTE = [
       ],
       edges: [],
     } },
+  { group: 'テンプレート（複数ノード）', name: 'グループ', hint: 'ラベル付きの枠で囲んだ 2 ノード。枠をドラッグするとまとめて動く',
+    json: {
+      groups: [{ id: 'grp', label: 'グループ', x: 0, y: 0, width: 560, height: 140 }],
+      nodes: [
+        { id: 'q1', type: 'input', title: '受付', x: 24, y: 48, output: true, group: 'grp',
+          items: [{ id: 'a', label: 'value', value: '1', output: true }] },
+        { id: 'q2', type: 'output', title: '振り分け', x: 312, y: 48, input: true, group: 'grp',
+          items: [{ id: 'b', label: 'value', value: '2', input: true }] },
+      ],
+      edges: [{ source: 'q1', sourcePort: 'item:a:out', target: 'q2', targetPort: 'item:b:in' }],
+    } },
   { group: 'テンプレート（複数ノード）', name: '分岐', hint: '1 ノードから 2 方向へ分かれる形',
     json: {
       nodes: [
@@ -342,6 +386,14 @@ function palettePreview(entry) {
   const wrap = document.createElement('div');
   wrap.className = 'pal-preview';
   const nodes = entry.json ? entry.json.nodes : [entry.spec()];
+  const groupLabel = entry.json?.groups?.[0]?.label;
+  if (groupLabel) {
+    wrap.classList.add('grouped');
+    const tab = document.createElement('div');
+    tab.className = 'pal-group-label';
+    tab.textContent = groupLabel;
+    wrap.appendChild(tab);
+  }
   for (const n of nodes.slice(0, 3)) {
     const card = document.createElement('div');
     card.className = 'pal-node';

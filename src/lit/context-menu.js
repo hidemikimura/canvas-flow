@@ -20,7 +20,7 @@ const SEP = { type: 'separator' };
  * @returns {Array<object>}
  */
 export function defaultContextMenuItems(ctx) {
-  const { el, editor, graph, type, node, edge } = ctx;
+  const { el, editor, graph, type, node, edge, group } = ctx;
   const selNodes = editor.selection.nodes.size;
   const selEdges = editor.selectedEdgeIds().length;
   const many = selNodes > 1;
@@ -50,12 +50,18 @@ export function defaultContextMenuItems(ctx) {
           { id: 'duplicate', label: many ? `${selNodes} 件を複製` : '複製', shortcut: 'Ctrl+D', run: () => el.duplicateSelection() },
           { id: 'delete', label: many ? `${selNodes} 件を削除` : '削除', shortcut: 'Delete', danger: true, run: () => el.deleteSelection() },
         ];
+    const inGroup = graph.groupOf(node);
     return [
       ...editItems,
       { id: 'delete-edges', label: 'つながりを外す', shortcut: 'Shift+Delete', disabled: !selEdges, run: () => el.deleteSelectedEdges() },
       SEP,
       { id: 'add-child', label: '子ノードを追加', run: () => addChild(ctx) },
       ...(isChild ? [{ id: 'detach-child', label: '子ノードを親から出す', run: () => detachChild(ctx) }] : []),
+      SEP,
+      { id: 'group', label: many ? `${selNodes} 件をグループ化` : 'グループ化', shortcut: 'Ctrl+G', run: () => el.groupSelection() },
+      ...(inGroup
+        ? [{ id: 'leave-group', label: `「${inGroup.label}」から外す`, run: () => el.setNodeGroup(selectedOr(editor, node), null) }]
+        : []),
       SEP,
       { id: 'select-focused', label: '強調されている要素を選択', shortcut: 'Ctrl+Shift+A', run: () => el.selectFocused() },
       { id: 'select-connected', label: 'つながっている要素を選択', run: () => el.selectConnected() },
@@ -83,9 +89,26 @@ export function defaultContextMenuItems(ctx) {
     ];
   }
 
+  if (type === 'group' || type === 'group-resize') {
+    const members = graph.groupMembers(group);
+    return [
+      { id: 'group-rename', label: 'ラベルを編集', run: () => el.editGroupLabel(group.id) },
+      { id: 'group-fit', label: 'メンバーに合わせる', disabled: !members.length, run: () => el.fitGroup(group.id) },
+      { id: 'group-select-members', label: `メンバーを選択（${members.length}）`, disabled: !members.length, run: () => editor.select({ nodes: members.map((n) => n.id) }) },
+      SEP,
+      { id: 'group-duplicate', label: '複製', shortcut: 'Ctrl+D', run: () => el.duplicateSelection() },
+      { id: 'ungroup', label: 'グループを解除', shortcut: 'Ctrl+Shift+G', run: () => el.ungroup([group.id]) },
+      { id: 'group-delete', label: 'メンバーごと削除', shortcut: 'Delete', danger: true, run: () => el.deleteSelection() },
+      SEP,
+      { id: 'add-node-in-group', label: 'ここにノードを追加', run: () => addNodeHere(ctx, group.id) },
+      { id: 'copy', label: 'コピー', shortcut: 'Ctrl+C', run: () => editor.copySelection() },
+    ];
+  }
+
   // 空白
   return [
     { id: 'add-node', label: 'ここにノードを追加', run: () => addNodeHere(ctx) },
+    { id: 'add-group', label: 'ここにグループを追加', run: () => addGroupHere(ctx) },
     { id: 'paste', label: '貼り付け', shortcut: 'Ctrl+V', run: () => editor.paste({ x: ctx.x, y: ctx.y }) },
     SEP,
     { id: 'select-all', label: 'すべて選択', shortcut: 'Ctrl+A', run: () => editor.selectAll() },
@@ -98,12 +121,24 @@ export function defaultContextMenuItems(ctx) {
   ];
 }
 
-function addNodeHere({ el, x, y }) {
+function addNodeHere({ el, x, y }, groupId) {
   const node = el.addNodeAt(
-    { title: '新しいノード', input: true, output: true, items: [] },
+    { title: '新しいノード', input: true, output: true, items: [], ...(groupId ? { group: groupId } : null) },
     { at: { x, y }, anchor: 'header' },
   );
   return node;
+}
+
+function addGroupHere({ el, editor, x, y }) {
+  const g = el.addGroup({ label: 'グループ', x: Math.round(x), y: Math.round(y), width: 320, height: 200 });
+  if (g) editor.select({ groups: [g.id] });
+  return g;
+}
+
+/** 右クリックしたノードが選択に含まれていれば選択全体、そうでなければそのノードだけ */
+function selectedOr(editor, node) {
+  const root = editor.graph.rootOf(node) ?? node;
+  return editor.selection.nodes.has(root.id) || editor.selection.nodes.has(node.id) ? [...editor.selection.nodes] : [root.id];
 }
 
 function addChild({ el, graph, node }) {

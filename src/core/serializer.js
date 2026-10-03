@@ -9,6 +9,7 @@ import { uid, parsePortKey, normalizeGoto, normalizeNote } from './graph.js';
  *   "version": 1,
  *   "nodes": [ ...Node ],
  *   "edges": [ ...Edge ],
+ *   "groups": [ ...Group ],                        // 任意。ノードは node.group でメンバーになる
  *   "viewport": { "tx": 0, "ty": 0, "zoom": 1 }   // 任意
  * }
  *
@@ -20,10 +21,10 @@ export const FORMAT_VERSION = 1;
 /**
  * エクスポート用のオブジェクトを作る。
  * @param {import('./graph.js').Graph} graph
- * @param {{nodeIds?: Iterable<string>, viewport?: object|null}} [options]
- *   nodeIds を渡すとそのノードと、両端がその中に含まれるエッジだけを出力する
+ * @param {{nodeIds?: Iterable<string>, groupIds?: Iterable<string>, viewport?: object|null}} [options]
+ *   nodeIds / groupIds を渡すとそのノード（グループはメンバーごと）と、両端がその中に含まれるエッジだけを出力する
  */
-export function serialize(graph, { nodeIds, viewport = null } = {}) {
+export function serialize(graph, { nodeIds, groupIds, viewport = null } = {}) {
   const pack = (node, isRoot) => {
     const { parent, ...rest } = structuredClone(node);
     if (!isRoot) {
@@ -38,10 +39,14 @@ export function serialize(graph, { nodeIds, viewport = null } = {}) {
 
   let tops;
   let edges;
-  if (nodeIds) {
-    // 指定ノードは子孫も一緒に書き出す
+  let groups;
+  if (nodeIds || groupIds) {
+    groups = [...(groupIds ?? [])].map((id) => graph.groups.get(id)).filter(Boolean);
+    // 指定ノードは子孫も一緒に書き出す。グループはメンバーも一緒に
     const set = new Set();
-    for (const id of nodeIds) {
+    const ids = [...(nodeIds ?? [])];
+    for (const g of groups) for (const n of graph.groupMembers(g)) ids.push(n.id);
+    for (const id of ids) {
       const node = graph.nodes.get(id);
       if (!node) continue;
       set.add(node.id);
@@ -63,6 +68,7 @@ export function serialize(graph, { nodeIds, viewport = null } = {}) {
   } else {
     tops = [...graph.nodes.values()].filter((n) => !graph.isChild(n));
     edges = [...graph.edges.values()];
+    groups = [...(graph.groups?.values() ?? [])];
   }
   const out = {
     format: FORMAT,
@@ -70,6 +76,7 @@ export function serialize(graph, { nodeIds, viewport = null } = {}) {
     nodes: tops.map((n) => pack(n, true)),
     edges: edges.map((e) => structuredClone(e)),
   };
+  if (groups.length) out.groups = groups.map((g) => structuredClone(g));
   if (viewport) out.viewport = { tx: viewport.tx, ty: viewport.ty, zoom: viewport.zoom };
   return out;
 }
@@ -107,8 +114,32 @@ export function validate(data) {
   }
   const rawNodes = data.nodes ?? [];
   const rawEdges = data.edges ?? [];
+  const rawGroups = data.groups ?? [];
   if (!Array.isArray(rawNodes)) errors.push('nodes は配列である必要があります');
   if (!Array.isArray(rawEdges)) errors.push('edges は配列である必要があります');
+  if (!Array.isArray(rawGroups)) errors.push('groups は配列である必要があります');
+  if (errors.length) return { ok: false, errors };
+
+  const groups = [];
+  const groupIds = new Set();
+  rawGroups.forEach((g, i) => {
+    if (!g || typeof g !== 'object') return void warnings.push(`groups[${i}] がオブジェクトではないため無視しました`);
+    const group = { ...g };
+    if (group.id == null) group.id = uid('g');
+    group.id = String(group.id);
+    if (groupIds.has(group.id)) {
+      errors.push(`groups[${i}]: id "${group.id}" が重複しています`);
+      return;
+    }
+    groupIds.add(group.id);
+    const num = (v) => typeof v === 'number' && Number.isFinite(v);
+    if (!num(group.x)) group.x = 0;
+    if (!num(group.y)) group.y = 0;
+    if (!num(group.width) || group.width <= 0) group.width = 320;
+    if (!num(group.height) || group.height <= 0) group.height = 200;
+    group.label = group.label == null ? '' : String(group.label);
+    groups.push(group);
+  });
   if (errors.length) return { ok: false, errors };
 
   const nodes = [];
@@ -170,6 +201,14 @@ export function validate(data) {
     }
     // 親から渡される座標は自動配置で上書きされるため、入力の parent は無視する
     delete node.parent;
+    // group は ID（文字列）だけ受け付ける。存在しないグループを指していても読み込み時に無視される
+    if (node.group != null) {
+      if (typeof node.group === 'number') node.group = String(node.group);
+      if (typeof node.group !== 'string' || !node.group) {
+        warnings.push(`${path}: group を解釈できないため無視しました`);
+        delete node.group;
+      }
+    }
     if (node.childs != null && !Array.isArray(node.childs)) {
       warnings.push(`${path}: childs が配列でないため無視しました`);
       delete node.childs;
@@ -222,6 +261,7 @@ export function validate(data) {
   });
 
   const out = { nodes, edges };
+  if (groups.length) out.groups = groups;
   const vp = data.viewport;
   if (vp && typeof vp === 'object' && [vp.tx, vp.ty, vp.zoom].every((v) => typeof v === 'number' && Number.isFinite(v)) && vp.zoom > 0) {
     out.viewport = { tx: vp.tx, ty: vp.ty, zoom: vp.zoom };
@@ -239,12 +279,26 @@ function portExists(node, key, dir) {
 
 /**
  * 既存グラフと衝突する ID を付け替えたコピーを返す（merge 用）。
- * @param {{nodes:object[], edges:object[]}} data
+ * @param {{nodes:object[], edges:object[], groups?:object[]}} data
  * @param {import('./graph.js').Graph} graph
  * @param {{offset?:{x:number,y:number}, forceNewIds?:boolean}} [options]
  */
 export function remapForMerge(data, graph, { offset, forceNewIds = false } = {}) {
   const idMap = new Map();
+  const groupMap = new Map();
+  const groups = (data.groups ?? []).map((g) => {
+    const copy = structuredClone(g);
+    if (forceNewIds || graph.groups?.has(copy.id)) {
+      const next = uid('g');
+      groupMap.set(copy.id, next);
+      copy.id = next;
+    }
+    if (offset) {
+      copy.x += offset.x;
+      copy.y += offset.y;
+    }
+    return copy;
+  });
   const remapNode = (n, isRoot) => {
     const copy = { ...structuredClone(n) };
     if (forceNewIds || graph.nodes.has(copy.id)) {
@@ -256,6 +310,7 @@ export function remapForMerge(data, graph, { offset, forceNewIds = false } = {})
       copy.x += offset.x;
       copy.y += offset.y;
     }
+    if (copy.group != null && groupMap.has(copy.group)) copy.group = groupMap.get(copy.group);
     // 子ノードは親が自動配置するのでオフセットは不要。id だけ付け替える
     if (Array.isArray(copy.childs)) copy.childs = copy.childs.map((c) => remapNode(c, false));
     return copy;
@@ -284,7 +339,7 @@ export function remapForMerge(data, graph, { offset, forceNewIds = false } = {})
     if (Array.isArray(node.childs)) node.childs.forEach(walkGoto);
   };
   nodes.forEach(walkGoto);
-  return { nodes, edges, idMap };
+  return { nodes, edges, groups, idMap, groupMap };
 }
 
 /** ブラウザでファイルとしてダウンロードさせる */

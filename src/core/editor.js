@@ -45,6 +45,11 @@ export { normalizeEdgeType, edgeGeometryFor, geometryPoint, geometryPolyline, no
  *  - 'context:menu'           { type, node, item, edge, port, x, y, screen, client, selection, originalEvent }  右クリック（既定のブラウザメニューは抑制される）
  *  - 'note:hover'             { kind, id, note, rect, screenRect } | { note: null }  メモのバッジに乗った／外れた
  *  - 'note:edit'              { kind, id, note, rect, screenRect }  メモのバッジをダブルクリックした
+ *  - 'group:add' | 'group:remove' | 'group:change' | 'groups:move'
+ *  - 'group:click'            { group, header, x, y, ... }  グループをクリック（ドラッグせずに離した）
+ *  - 'group:edit'             { group, rect, screenRect }  グループのラベルをダブルクリックした
+ *  - 'group:resize:end'       { id, from:{width,height}, to:{width,height} }
+ *  - 'group:membership'       { nodes: [{id, from, to}] }  ドラッグでノードがグループに入った／出た
  */
 export class NodeEditor extends Emitter {
   /**
@@ -63,11 +68,13 @@ export class NodeEditor extends Emitter {
    * @param {boolean} [options.edgeDeleteIcon=true] ホバー／選択中のコネクタに削除アイコンを表示する
    * @param {number}  [options.wheelGestureGap=250] ホイールイベントの間隔（ms）がこれ未満なら同じスクロール操作とみなし、ズーム / パンの判定を維持する
    * @param {number}  [options.moveSnap=0] ノードの移動単位（ワールド px）。0 で無効。設定するとドラッグ・矢印キー・ノード追加・JSON 追加の位置がこの単位に揃う
+   * @param {boolean} [options.groupOnDrop=true] ノードを置いた位置のグループに入れる（外に出したら外す）。
+   *   ドラッグ移動のほか、貼り付け・複製・JSON の追加・addNodeAt で置いたときも同じ規則で決まる
    */
   constructor(canvas, options = {}) {
     super();
     this.canvas = canvas;
-    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, focusMode: 'off', focusDepth: 1, focusDirection: 'lineage', notes: true, ...options };
+    this.options = { wheelMode: 'zoom', dragMode: 'pan', readOnly: false, historyLimit: 200, minNodeWidth: 100, edgeDeleteIcon: true, moveSnap: 0, focusMode: 'off', focusDepth: 1, focusDirection: 'lineage', notes: true, groupOnDrop: true, ...options };
     this.theme = mergeTheme(defaultTheme, options.theme);
     this.nodeTypes = { ...(options.nodeTypes ?? {}) };
 
@@ -83,14 +90,16 @@ export class NodeEditor extends Emitter {
           curvature: this.theme.edge.curvature,
           edgeType: this.theme.edge.type,
           stepOffset: this.theme.edge.stepOffset,
+          groupLabelHeight: this.theme.group.labelHeight,
+          groupPadding: this.theme.group.padding,
         },
       });
     this.viewport = new Viewport();
     this.renderer = new Renderer(canvas, this.graph, this.viewport, this.theme);
     this.renderer.resolveNodeStyle = (node) => this._nodeStyle(node);
 
-    this.selection = { nodes: new Set(), edges: new Set() };
-    this.hover = { node: null, edge: null, port: null, edgeDelete: null, note: null };
+    this.selection = { nodes: new Set(), edges: new Set(), groups: new Set() };
+    this.hover = { node: null, edge: null, port: null, edgeDelete: null, note: null, group: null };
     this.selectionBox = null;
     this.pendingEdge = null;
     this._clipboard = null;
@@ -114,7 +123,7 @@ export class NodeEditor extends Emitter {
       this.emit('graph:change');
     };
     this.graph.on('change', this._onGraphChange);
-    for (const t of ['node:add', 'node:remove', 'node:change', 'nodes:move', 'edge:add', 'edge:remove', 'edge:change']) {
+    for (const t of ['node:add', 'node:remove', 'node:change', 'nodes:move', 'edge:add', 'edge:remove', 'edge:change', 'group:add', 'group:remove', 'group:change', 'groups:move']) {
       this.graph.on(t, (p) => this.emit(t, p));
     }
     this.graph.on('node:remove', (n) => {
@@ -122,6 +131,10 @@ export class NodeEditor extends Emitter {
     });
     this.graph.on('edge:remove', (e) => {
       this.selection.edges.delete(e.id);
+    });
+    this.graph.on('group:remove', (g) => {
+      this.selection.groups.delete(g.id);
+      if (this.hover.group === g.id) this.hover.group = null;
     });
   }
 
@@ -140,6 +153,8 @@ export class NodeEditor extends Emitter {
       curvature: this.theme.edge.curvature,
       edgeType: this.theme.edge.type,
       stepOffset: this.theme.edge.stepOffset,
+      groupLabelHeight: this.theme.group.labelHeight,
+      groupPadding: this.theme.group.padding,
     });
     this.minimap?.invalidate();
     this.requestRender();
@@ -565,6 +580,8 @@ export class NodeEditor extends Emitter {
       pendingEdge: this.pendingEdge,
       focus: this.focusSet(),
       notes: this.options.notes !== false,
+      selectedGroups: this.selection.groups,
+      hoverGroup: this.hover.group,
     });
     this.minimap?.render();
     this.emit('render', this.renderer.stats);
@@ -588,7 +605,8 @@ export class NodeEditor extends Emitter {
 
   /**
    * ワールド座標にあるものを返す。
-   * @returns {{type:'edge-delete',edge:object}|{type:'resize',node:object}|{type:'port',node:object,port:object}|{type:'item',node:object,item:object}|{type:'node',node:object,header:boolean}|{type:'edge',edge:object}|{type:'none'}}
+   * グループはノード・コネクタの背面にあるので、どちらにも当たらなかったときだけ判定する。
+   * @returns {{type:'edge-delete',edge:object}|{type:'resize',node:object}|{type:'port',node:object,port:object}|{type:'item',node:object,item:object}|{type:'node',node:object,header:boolean}|{type:'edge',edge:object}|{type:'group-resize',group:object}|{type:'group',group:object,header:boolean}|{type:'none'}}
    */
   hitTest(wx, wy) {
     const { graph, viewport } = this;
@@ -650,7 +668,17 @@ export class NodeEditor extends Emitter {
     }
     const edge = this.edgeAt(wx, wy);
     if (edge) return { type: 'edge', edge };
+    const group = this.groupAt(wx, wy);
+    if (group) {
+      if (wx >= group.x + group.width - grip && wy >= group.y + group.height - grip) return { type: 'group-resize', group };
+      return { type: 'group', group, header: wy <= group.y + graph.layout.groupLabelHeight };
+    }
     return { type: 'none' };
+  }
+
+  /** その位置にあるグループ（重なっていれば手前 = 後から追加したもの） */
+  groupAt(wx, wy) {
+    return this.graph.groupsAt(wx, wy)[0] ?? null;
   }
 
   /** 削除アイコンを表示するコネクタ（ホバー中 + 選択中）。表示条件を満たさなければ空 */
@@ -715,42 +743,53 @@ export class NodeEditor extends Emitter {
   _emitSelection() {
     // selectFocused() の実行中だけは、選択した範囲を強調対象として固定する
     this._focusCache = this._pinnedFocus ?? null;
-    this.emit('selection:change', { nodes: [...this.selection.nodes], edges: [...this.selection.edges] });
+    this.emit('selection:change', {
+      nodes: [...this.selection.nodes],
+      edges: [...this.selection.edges],
+      groups: [...this.selection.groups],
+    });
     if (this.focusMode !== 'off') this.emit('focus:change', this._focusDetail());
     this.minimap?.invalidate();
     this.requestRender();
   }
 
-  select({ nodes = [], edges = [] }, { additive = false } = {}) {
+  select({ nodes = [], edges = [], groups = [] }, { additive = false } = {}) {
     if (!additive) {
       this.selection.nodes.clear();
       this.selection.edges.clear();
+      this.selection.groups.clear();
     }
     for (const id of nodes) this.selection.nodes.add(id);
     for (const id of edges) this.selection.edges.add(id);
+    for (const id of groups) if (this.graph.groups.has(id)) this.selection.groups.add(id);
     this._emitSelection();
   }
 
-  toggleSelect({ nodes = [], edges = [] }) {
-    for (const id of nodes) this.selection.nodes.has(id) ? this.selection.nodes.delete(id) : this.selection.nodes.add(id);
-    for (const id of edges) this.selection.edges.has(id) ? this.selection.edges.delete(id) : this.selection.edges.add(id);
+  toggleSelect({ nodes = [], edges = [], groups = [] }) {
+    const flip = (set, id) => (set.has(id) ? set.delete(id) : set.add(id));
+    for (const id of nodes) flip(this.selection.nodes, id);
+    for (const id of edges) flip(this.selection.edges, id);
+    for (const id of groups) if (this.graph.groups.has(id)) flip(this.selection.groups, id);
     this._emitSelection();
   }
 
   clearSelection() {
-    if (this.selection.nodes.size === 0 && this.selection.edges.size === 0) return;
+    if (this.selection.nodes.size === 0 && this.selection.edges.size === 0 && this.selection.groups.size === 0) return;
     this.selection.nodes.clear();
     this.selection.edges.clear();
+    this.selection.groups.clear();
     this._emitSelection();
   }
 
   selectAll() {
-    this.select({ nodes: [...this.graph.nodes.keys()], edges: [...this.graph.edges.keys()] });
+    this.select({ nodes: [...this.graph.nodes.keys()], edges: [...this.graph.edges.keys()], groups: [...this.graph.groups.keys()] });
   }
 
   /** 矩形（ワールド）に完全に含まれるノードと、その間のエッジを選択 */
-  /** 範囲選択。子ノードは親と一緒に動くので、選ぶのは親を持たないノードだけ */
+  /** 範囲選択。子ノードは親と一緒に動くので、選ぶのは親を持たないノードだけ。グループも完全に含まれるものを選ぶ */
   selectInRect(rect, { additive = false } = {}) {
+    const inside = (r) => r.x >= rect.x && r.y >= rect.y && r.x + r.w <= rect.x + rect.w && r.y + r.h <= rect.y + rect.h;
+    const groups = [...this.graph.groups.values()].filter((g) => inside(this.graph.groupRect(g))).map((g) => g.id);
     const nodes = this.graph
       .nodesFullyInRect(rect)
       .filter((n) => !this.graph.isChild(n))
@@ -762,24 +801,33 @@ export class NodeEditor extends Emitter {
         if (set.has(e.source) && set.has(e.target)) edges.push(e.id);
       }
     }
-    this.select({ nodes, edges }, { additive });
+    this.select({ nodes, edges, groups }, { additive });
   }
 
   get selectedNodes() {
     return [...this.selection.nodes].map((id) => this.graph.nodes.get(id)).filter(Boolean);
   }
 
+  get selectedGroups() {
+    return [...this.selection.groups].map((id) => this.graph.groups.get(id)).filter(Boolean);
+  }
+
   /* ---------- 編集コマンド ---------- */
 
-  /** 選択中のノード・エッジを削除 */
+  /**
+   * 選択中のノード・エッジ・グループを削除する。
+   * グループはメンバーのノードごと消える（枠だけ外したいときは `ungroup()`）。
+   */
   deleteSelection() {
     if (this.options.readOnly) return;
     const nodes = [...this.selection.nodes];
     const edges = [...this.selection.edges];
-    if (!nodes.length && !edges.length) return;
+    const groups = [...this.selection.groups];
+    if (!nodes.length && !edges.length && !groups.length) return;
     this.graph.batch(() => {
       this.graph.removeEdges(edges);
       this.graph.removeNodes(nodes);
+      this.graph.removeGroups(groups, { withMembers: true });
     });
     this._emitSelection();
   }
@@ -829,9 +877,34 @@ export class NodeEditor extends Emitter {
   duplicateSelection(offset = { x: 40, y: 40 }) {
     if (this.options.readOnly) return null;
     const ids = [...this.selection.nodes];
-    if (!ids.length) return null;
-    const result = this.graph.duplicateNodes(ids, offset);
-    this.select({ nodes: result.nodes.map((n) => n.id), edges: result.edges.map((e) => e.id) });
+    const groupIds = [...this.selection.groups];
+    if (!ids.length && !groupIds.length) return null;
+    // グループと一緒に付いてくるだけのメンバーは、複製後も選択に入れない（グループと一緒に動くので）
+    const memberOnly = new Set();
+    for (const gid of groupIds) {
+      for (const n of this.graph.groupMembers(gid)) {
+        if (this.selection.nodes.has(n.id)) continue;
+        for (const d of this.graph.descendantIds(n, { includeSelf: true })) memberOnly.add(d);
+      }
+    }
+    let result;
+    this.history.begin('duplicate');
+    try {
+      result = this.graph.duplicateNodes(ids, offset, { groupIds });
+      // グループごと複製したもの以外は、ずらした先の位置で所属を決め直す
+      const copiedGroups = result.groups.map((g) => g.id);
+      if (this.options.groupOnDrop !== false) {
+        const loose = result.nodes.filter((n) => !n.parent && !(n.group && copiedGroups.includes(n.group))).map((n) => n.id);
+        this.updateGroupMembership(loose, { exclude: copiedGroups });
+      }
+    } finally {
+      this.history.end();
+    }
+    this.select({
+      nodes: [...result.idMap].filter(([src]) => !memberOnly.has(src)).map(([, copy]) => copy),
+      edges: result.edges.map((e) => e.id),
+      groups: result.groups.map((g) => g.id),
+    });
     return result;
   }
 
@@ -842,8 +915,10 @@ export class NodeEditor extends Emitter {
 
   /** 選択内容を内部クリップボードへ */
   copySelection() {
-    const ids = [...this.selection.nodes];
-    if (!ids.length) return false;
+    const groupIds = [...this.selection.groups].filter((id) => this.graph.groups.has(id));
+    // グループはメンバーごとコピーする
+    const ids = [...new Set([...this.selection.nodes, ...groupIds.flatMap((gid) => this.graph.groupMembers(gid).map((n) => n.id))])];
+    if (!ids.length && !groupIds.length) return false;
     const set = new Set(ids);
     const nodes = ids.map((id) => structuredClone(this.graph.nodes.get(id)));
     const edges = [];
@@ -856,7 +931,8 @@ export class NodeEditor extends Emitter {
         }
       }
     }
-    this._clipboard = { nodes, edges };
+    const groups = groupIds.map((id) => structuredClone(this.graph.groups.get(id)));
+    this._clipboard = { nodes, edges, groups };
     return true;
   }
 
@@ -866,24 +942,37 @@ export class NodeEditor extends Emitter {
    */
   paste(at) {
     if (this.options.readOnly || !this._clipboard) return null;
-    const { nodes, edges } = this._clipboard;
+    const { nodes, edges, groups = [] } = this._clipboard;
     let dx = 40;
     let dy = 40;
     if (at) {
-      const minX = Math.min(...nodes.map((n) => n.x));
-      const minY = Math.min(...nodes.map((n) => n.y));
+      const minX = Math.min(...nodes.map((n) => n.x), ...groups.map((g) => g.x));
+      const minY = Math.min(...nodes.map((n) => n.y), ...groups.map((g) => g.y));
       dx = at.x - minX;
       dy = at.y - minY;
     }
     const idMap = new Map();
+    const groupMap = new Map();
     const newNodes = [];
     const newEdges = [];
+    const newGroups = [];
     this.graph.batch(() => {
+      for (const g of groups) {
+        const copy = structuredClone(g);
+        copy.id = uid('g');
+        copy.x += dx;
+        copy.y += dy;
+        groupMap.set(g.id, copy.id);
+        newGroups.push(this.graph.addGroup(copy));
+      }
       for (const n of nodes) {
         const copy = structuredClone(n);
         copy.id = uid('n');
         copy.x += dx;
         copy.y += dy;
+        // 一緒に貼り付けたグループのメンバーはそのグループへ。それ以外は置いた位置で決める
+        if (groupMap.has(copy.group)) copy.group = groupMap.get(copy.group);
+        else if (this.options.groupOnDrop !== false) copy.group = this._groupAtPlacement(copy, groupMap.values());
         idMap.set(n.id, copy.id);
         newNodes.push(this.graph.addNode(copy));
       }
@@ -897,18 +986,34 @@ export class NodeEditor extends Emitter {
       }
     });
     // 連続貼り付けでずれるように
-    for (const n of this._clipboard.nodes) {
+    for (const n of [...this._clipboard.nodes, ...groups]) {
       n.x += 40;
       n.y += 40;
     }
-    this.select({ nodes: newNodes.map((n) => n.id), edges: newEdges.map((e) => e.id) });
-    return { nodes: newNodes, edges: newEdges };
+    this.select({ nodes: newNodes.map((n) => n.id), edges: newEdges.map((e) => e.id), groups: newGroups.map((g) => g.id) });
+    return { nodes: newNodes, edges: newEdges, groups: newGroups };
   }
 
-  /** 選択ノードを移動 */
+  /** 選択ノード・グループを移動（グループのメンバーも一緒に動く） */
   moveSelection(dx, dy) {
     if (this.options.readOnly) return;
-    this.graph.moveNodes([...this.selection.nodes], dx, dy);
+    this._moveSelected(dx, dy);
+  }
+
+  /** 選択中のノードとグループを動かす。グループのメンバーと選択ノードが重なっていても 1 回だけ動かす */
+  _moveSelected(dx, dy) {
+    if (dx === 0 && dy === 0) return;
+    const groups = [...this.selection.groups];
+    if (!groups.length) {
+      this.graph.moveNodes([...this.selection.nodes], dx, dy);
+      return;
+    }
+    this.graph.batch(() => {
+      this.graph.moveGroups(groups, dx, dy, { members: false });
+      const ids = new Set(this.selection.nodes);
+      for (const gid of groups) for (const n of this.graph.groupMembers(gid)) ids.add(n.id);
+      if (ids.size) this.graph.moveNodes([...ids], dx, dy);
+    });
   }
 
   /**
@@ -916,10 +1021,10 @@ export class NodeEditor extends Emitter {
    * 先頭の選択ノードを単位に揃えたうえで動かすので、押すたびにグリッド上を進む。
    */
   nudgeSelection(stepsX, stepsY, { pixels = 1 } = {}) {
-    if (this.options.readOnly || !this.selection.nodes.size) return;
+    if (this.options.readOnly || (!this.selection.nodes.size && !this.selection.groups.size)) return;
     const unit = this.moveSnap || pixels;
     const ids = [...this.selection.nodes];
-    const anchor = this.graph.nodes.get(ids[0]);
+    const anchor = ids.length ? this.graph.nodes.get(ids[0]) : this.graph.groups.get([...this.selection.groups][0]);
     let dx = stepsX * unit;
     let dy = stepsY * unit;
     if (this.moveSnap && anchor) {
@@ -933,7 +1038,171 @@ export class NodeEditor extends Emitter {
       dx = along(anchor.x, stepsX);
       dy = along(anchor.y, stepsY);
     }
-    if (dx || dy) this.graph.moveNodes(ids, dx, dy);
+    if (dx || dy) this._moveSelected(dx, dy);
+  }
+
+  /* ---------- グループ（ラベル付きの枠） ---------- */
+
+  /**
+   * グループを追加する（Undo 可）。`{label, x, y, width, height, style?, data?}`。
+   * メンバーは `setNodeGroup()` で入れるか、`groupNodes()` で既存ノードを囲んで作る。
+   */
+  addGroup(spec) {
+    if (this.options.readOnly) return null;
+    return this.graph.addGroup(spec);
+  }
+
+  /** グループのラベル・位置・大きさ・style などを更新する（Undo 可） */
+  updateGroup(id, patch) {
+    if (this.options.readOnly) return null;
+    return this.graph.updateGroup(id, patch);
+  }
+
+  /**
+   * グループを削除する（Undo 可）。既定ではメンバーのノードは残る。
+   * @param {string} id
+   * @param {{withMembers?:boolean}} [options] true ならメンバーも削除する
+   */
+  removeGroup(id, options) {
+    if (this.options.readOnly) return false;
+    return this.graph.removeGroup(id, options);
+  }
+
+  getGroup(id) {
+    return this.graph.groups.get(id) ?? null;
+  }
+
+  /** ノードが属するグループ（子ノードは一番外側の親のグループ）。無ければ null */
+  groupOf(nodeOrId) {
+    return this.graph.groupOf(nodeOrId);
+  }
+
+  /** グループのメンバー（親を持たないノード） */
+  groupMembers(groupOrId) {
+    return this.graph.groupMembers(groupOrId);
+  }
+
+  /** ノードをグループに入れる / null で外す（Undo 可）。所属が変わったノード ID を返す */
+  setNodeGroup(nodeIds, groupId) {
+    if (this.options.readOnly) return [];
+    return this.graph.setNodeGroup(nodeIds, groupId);
+  }
+
+  /**
+   * ノード群を囲むグループを作り、それらをメンバーにする（1 回の Undo で戻る）。
+   * 子ノードを渡すと一番外側の親が対象になる。既に別のグループにいたノードは新しいグループへ移る。
+   * @param {Iterable<string>} nodeIds
+   * @param {{label?:string, padding?:number, style?:object, data?:object, id?:string, select?:boolean}} [options]
+   * @returns {object|null} 作ったグループ
+   */
+  groupNodes(nodeIds, { label = 'Group', padding, select = true, ...rest } = {}) {
+    if (this.options.readOnly) return null;
+    const roots = [];
+    for (const id of nodeIds) {
+      const root = this.graph.rootOf(id);
+      if (root && !roots.includes(root.id)) roots.push(root.id);
+    }
+    const rect = this.graph.groupRectFor(roots, padding);
+    if (!rect) return null;
+    const group = this.graph.batch(() => {
+      const g = this.graph.addGroup({
+        ...rest,
+        label,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.w),
+        height: Math.round(rect.h),
+      });
+      this.graph.setNodeGroup(roots, g.id);
+      return g;
+    });
+    if (select) this.select({ groups: [group.id] });
+    return group;
+  }
+
+  /** 選択中のノード（とグループのメンバー）を新しいグループで囲む（Ctrl/Cmd+G） */
+  groupSelection(options) {
+    const ids = new Set(this.selection.nodes);
+    for (const gid of this.selection.groups) for (const n of this.graph.groupMembers(gid)) ids.add(n.id);
+    if (!ids.size) return null;
+    return this.groupNodes(ids, options);
+  }
+
+  /**
+   * グループを解除する（枠だけ消してメンバーのノードは残す。Ctrl/Cmd+Shift+G）。
+   * 解除したグループのメンバーを選択状態にする。
+   * @param {Iterable<string>} [ids] 省略時は選択中のグループ
+   * @returns {string[]} 選択し直したノード ID
+   */
+  ungroup(ids) {
+    if (this.options.readOnly) return [];
+    const list = [...(ids ?? this.selection.groups)].filter((id) => this.graph.groups.has(id));
+    if (!list.length) return [];
+    const members = list.flatMap((id) => this.graph.groupMembers(id).map((n) => n.id));
+    this.graph.removeGroups(list);
+    this.select({ nodes: members });
+    return members;
+  }
+
+  /** グループの大きさを変える（最小サイズは theme.group.minWidth / minHeight） */
+  resizeGroup(id, width, height) {
+    if (this.options.readOnly) return null;
+    const g = this.graph.groups.get(id);
+    if (!g) return null;
+    const st = this.theme.group;
+    const w = Math.max(st.minWidth ?? 1, Math.round(width ?? g.width));
+    const h = Math.max(st.minHeight ?? 1, Math.round(height ?? g.height));
+    if (w === g.width && h === g.height) return g;
+    return this.graph.updateGroup(id, { width: w, height: h });
+  }
+
+  /** グループの大きさをメンバーにぴったり合わせる（Undo 可） */
+  fitGroup(id, options) {
+    if (this.options.readOnly) return null;
+    return this.graph.fitGroup(id, options);
+  }
+
+  /**
+   * ドラッグで置いたノードの所属グループを、置いた位置で決め直す（Undo 可）。
+   * ノード（子ノードを含む外枠）の中心が入っているグループのうち一番小さいものに入り、どこにも入っていなければ外れる。
+   * `groupOnDrop: false` のときはドラッグ後に自動では呼ばれない。
+   * @param {Iterable<string>} nodeIds
+   * @param {{exclude?:Iterable<string>}} [options] 判定から除くグループ（一緒に動かしたグループ）
+   * @returns {Array<{id:string, from:string|null, to:string|null}>}
+   */
+  updateGroupMembership(nodeIds, { exclude = [] } = {}) {
+    if (this.options.readOnly || !this.graph.groups.size) return [];
+    const skip = new Set(exclude);
+    const changes = [];
+    const seen = new Set();
+    this.graph.batch(() => {
+      for (const id of nodeIds) {
+        const root = this.graph.rootOf(id);
+        if (!root || seen.has(root.id)) continue;
+        seen.add(root.id);
+        // グループごと動かしたメンバーは、そのグループに残す
+        if (root.group && skip.has(root.group)) continue;
+        const target = this.graph.groupForRect(this.graph.nodeRect(root), { exclude: skip });
+        const from = root.group ?? null;
+        const to = target?.id ?? null;
+        if (from === to) continue;
+        this.graph.setNodeGroup(root.id, to);
+        changes.push({ id: root.id, from, to });
+      }
+    });
+    if (changes.length) this.emit('group:membership', { nodes: changes });
+    return changes;
+  }
+
+  /**
+   * まだグラフに無いノード定義を置いたときに入るグループの ID（groupOnDrop が無効・該当なしなら undefined）。
+   * 貼り付け・JSON の追加・addNodeAt で、ドラッグで置いたときと同じ規則にするために使う。
+   */
+  _groupAtPlacement(spec, exclude) {
+    if (this.options.groupOnDrop === false || !this.graph.groups.size) return undefined;
+    const probe = { ...spec, items: spec.items ?? [] };
+    const rect = { x: spec.x ?? 0, y: spec.y ?? 0, w: this.graph.nodeWidth(probe), h: this.graph.nodeHeight(probe) };
+    return this.graph.groupForRect(rect, { exclude })?.id;
   }
 
   /** ポートの表示 / 非表示（ノードのヘッダ or 項目の 1 ポート）。Undo 可 */
@@ -1064,7 +1333,10 @@ export class NodeEditor extends Emitter {
         y += step;
       }
     }
-    const node = this.graph.addNode({ ...spec, x: Math.round(x), y: Math.round(y) });
+    const placed = { ...spec, x: Math.round(x), y: Math.round(y) };
+    // group を指定していなければ、置いた位置のグループに入れる
+    if (placed.group == null) placed.group = this._groupAtPlacement(placed);
+    const node = this.graph.addNode(placed);
     if (select) this.select({ nodes: [node.id] });
     return node;
   }
@@ -1115,6 +1387,12 @@ export class NodeEditor extends Emitter {
     for (const id of [...this.selection.edges]) {
       if (!this.graph.edges.has(id)) {
         this.selection.edges.delete(id);
+        changed = true;
+      }
+    }
+    for (const id of [...this.selection.groups]) {
+      if (!this.graph.groups.has(id)) {
+        this.selection.groups.delete(id);
         changed = true;
       }
     }
@@ -1251,6 +1529,7 @@ export class NodeEditor extends Emitter {
   exportData({ selectionOnly = false, includeViewport = true } = {}) {
     const data = serialize(this.graph, {
       nodeIds: selectionOnly ? this.selection.nodes : undefined,
+      groupIds: selectionOnly ? this.selection.groups : undefined,
       viewport: includeViewport && !selectionOnly ? this.viewport.snapshot() : null,
     });
     this.emit('export', { data, selectionOnly });
@@ -1281,7 +1560,7 @@ export class NodeEditor extends Emitter {
    * @param {boolean} [options.select=true]         merge 後に読み込んだ要素を選択する
    * @param {boolean} [options.restoreViewport=true] replace 時に viewport を復元する
    * @param {boolean} [options.fitView=false]       読み込み後に全体表示する
-   * @returns {{ok:true, nodes:object[], edges:object[], warnings:string[]} | {ok:false, errors:string[]}}
+   * @returns {{ok:true, nodes:object[], edges:object[], groups:object[], warnings:string[]} | {ok:false, errors:string[]}}
    */
   importData(input, { mode = 'replace', offset, at, anchor = 'top-left', select = true, restoreViewport = true, fitView = false } = {}) {
     if (this.options.readOnly) return { ok: false, errors: ['読み取り専用です'] };
@@ -1291,13 +1570,14 @@ export class NodeEditor extends Emitter {
     let nodes;
     let edges;
 
+    let groups = [];
     if (mode === 'merge') {
       let off = offset;
-      if (at && data.nodes.length) {
+      if (at && (data.nodes.length || data.groups?.length)) {
         if (anchor === 'origin') {
           off = { x: at.x, y: at.y };
         } else {
-          const b = boundsOfNodes(this.graph, data.nodes);
+          const b = boundsOfNodes(this.graph, data.nodes, data.groups);
           off =
             anchor === 'center'
               ? { x: at.x - (b.x + b.w / 2), y: at.y - (b.y + b.h / 2) }
@@ -1306,28 +1586,35 @@ export class NodeEditor extends Emitter {
         off = { x: Math.round(off.x), y: Math.round(off.y) };
       }
       const remapped = remapForMerge(data, this.graph, { offset: off });
+      // JSON 内のグループに入っていないノードは、置いた位置のグループに入れる
+      const ownGroups = new Set(remapped.groups.map((g) => g.id));
+      if (this.options.groupOnDrop !== false) {
+        for (const n of remapped.nodes) if (!ownGroups.has(n.group)) n.group = this._groupAtPlacement(n, ownGroups);
+      }
       nodes = [];
       edges = [];
       this.graph.batch(() => {
+        for (const g of remapped.groups) groups.push(this.graph.addGroup(g));
         for (const n of remapped.nodes) nodes.push(this.graph.addNode(n));
         for (const e of remapped.edges) {
           const added = this.graph.addEdge(e);
           if (added) edges.push(added);
         }
       });
-      if (select) this.select({ nodes: nodes.map((n) => n.id), edges: edges.map((e) => e.id) });
+      if (select) this.select({ nodes: nodes.map((n) => n.id), edges: edges.map((e) => e.id), groups: groups.map((g) => g.id) });
     } else {
       this.clearSelection();
       this.graph.load(data);
       nodes = [...this.graph.nodes.values()];
       edges = [...this.graph.edges.values()];
+      groups = [...this.graph.groups.values()];
       if (restoreViewport && data.viewport) {
         this.viewport.restore(data.viewport);
         this._viewportChanged();
       }
     }
     if (fitView) this.fitView();
-    const result = { ok: true, mode, nodes, edges, warnings };
+    const result = { ok: true, mode, nodes, edges, groups, warnings };
     this.emit('import', result);
     return result;
   }
@@ -1364,7 +1651,7 @@ export class NodeEditor extends Emitter {
       pos = { x: Math.round(pos.x / g) * g, y: Math.round(pos.y / g) * g };
     }
     const r = this.importData(input, { mode: 'merge', at: pos, anchor, select });
-    if (r.ok) this.emit('insert', { at: pos, anchor, nodes: r.nodes, edges: r.edges });
+    if (r.ok) this.emit('insert', { at: pos, anchor, nodes: r.nodes, edges: r.edges, groups: r.groups });
     return r;
   }
 
@@ -1411,9 +1698,15 @@ export class NodeEditor extends Emitter {
   }
 }
 
-/** ノード定義の配列を囲む矩形（グラフに未登録のノードでも計算できる） */
-function boundsOfNodes(graph, nodes) {
+/** ノード定義（とグループ定義）の配列を囲む矩形（グラフに未登録のものでも計算できる） */
+function boundsOfNodes(graph, nodes, groups = []) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const g of groups) {
+    x0 = Math.min(x0, g.x);
+    y0 = Math.min(y0, g.y);
+    x1 = Math.max(x1, g.x + g.width);
+    y1 = Math.max(y1, g.y + g.height);
+  }
   for (const n of nodes) {
     const w = graph.nodeWidth(n);
     const h = graph.nodeHeight({ ...n, items: n.items ?? [] });

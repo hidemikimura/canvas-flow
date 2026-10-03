@@ -34,6 +34,9 @@ export function makeCanvas({ width = 800, height = 600 } = {}) {
     removeEventListener: (type) => listeners.delete(type),
     getBoundingClientRect: () => ({ left: 0, top: 0, width, height, right: width, bottom: height }),
     hasAttribute: () => true,
+    focus: noop,
+    setPointerCapture: noop,
+    releasePointerCapture: noop,
     setAttribute: noop,
     dispatchEvent: () => true,
     /** テストからイベントを流し込みたいとき用 */

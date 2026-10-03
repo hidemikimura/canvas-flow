@@ -30,6 +30,17 @@ import { SpatialIndex } from './spatial-index.js';
  * @property {PortSpec} [output]  ヘッダ右の出力ポート
  * @property {Object} [style]     テーマ node.* の上書き
  * @property {Object} [data]      任意データ
+ * @property {string} [group]     所属するグループの ID（親を持たないノードのみ）
+ *
+ * @typedef {Object} Group  ノードの背面に描くラベル付きの枠
+ * @property {string} id
+ * @property {string} label       左上に出すラベル
+ * @property {number} x
+ * @property {number} y
+ * @property {number} width
+ * @property {number} height
+ * @property {Object} [style]     テーマ group.* の上書き
+ * @property {Object} [data]      任意データ
  *
  * @typedef {Object} Edge
  * @property {string} id
@@ -250,6 +261,10 @@ export class Graph extends Emitter {
     this._gotoIndex = null;
     /** 親ノード ID → 子ノード ID の並び（表示順） */
     this._children = new Map();
+    /** @type {Map<string, Group>} グループ（ラベル付きの枠）。描画順 = 追加順 */
+    this.groups = new Map();
+    /** グループ ID → メンバーのノード ID（遅延計算。ノードの内容が変わったら破棄する） */
+    this._groupIndex = null;
     this.nodeIndex = new SpatialIndex(cellSize);
     this.edgeIndex = new SpatialIndex(cellSize);
     this.layout = {
@@ -266,6 +281,10 @@ export class Graph extends Emitter {
       childIndent: 10,
       /** 子ノードどうしの縦の間隔 */
       childGap: 6,
+      /** グループ上端のラベル帯の高さ（ここをダブルクリックするとラベルを編集） */
+      groupLabelHeight: 24,
+      /** グループをメンバーに合わせるときの内側の余白 */
+      groupPadding: 24,
       ...layout,
     };
     /**
@@ -639,9 +658,12 @@ export class Graph extends Emitter {
     } else {
       delete node.parent;
     }
+    // グループに入れるのは親を持たないノードだけ。存在しないグループの指定は捨てる
+    if (node.parent || typeof node.group !== 'string' || !this.groups.has(node.group)) delete node.group;
     this.nodes.set(node.id, node);
     this._adjacency.set(node.id, new Set());
     this._invalidateGoto();
+    this._groupIndex = null;
     if (node.parent) {
       const list = this._children.get(node.parent) ?? [];
       if (index == null || index < 0 || index >= list.length) list.push(node.id);
@@ -708,6 +730,7 @@ export class Graph extends Emitter {
       } else {
         delete node.parent;
       }
+      this._groupIndex = null;
       this.emit('node:change', node);
       this._op(() => ({ type: 'node:parent', id, before, after: { parent: next, index: index ?? null } }));
       if (oldRoot && oldRoot.id !== id) this._relayoutFrom(oldRoot);
@@ -886,6 +909,7 @@ export class Graph extends Emitter {
     this.nodes.delete(id);
     this._adjacency.delete(id);
     this._invalidateGoto();
+    this._groupIndex = null;
     this.nodeIndex.remove(id);
     this.emit('node:remove', node);
     this._op(() => ({ type: 'node:remove', node: structuredClone(node), parent: node.parent ?? null }));
@@ -901,6 +925,7 @@ export class Graph extends Emitter {
 
   _reindexNode(node) {
     this._invalidateGoto();
+    this._groupIndex = null;
     this.nodeIndex.update(node.id, this.nodeRect(node));
     for (const eid of this._adjacency.get(node.id)) this._reindexEdge(this.edges.get(eid));
     // 高さ・幅が変わると親の枠と兄弟の位置も動く（親子が絡まないノードでは何もしない）
@@ -1301,6 +1326,253 @@ export class Graph extends Emitter {
     return edge ? { kind: 'edge', obj: edge } : null;
   }
 
+  /* ---------- グループ（ラベル付きの枠） ---------- */
+
+  /**
+   * グループを追加する（Undo 可）。グループはノードの背面に描く矩形の枠で、左上にラベルが付く。
+   * ノードは `node.group` にグループ ID を持つとメンバーになり、グループを動かすと一緒に動く。
+   * @param {Partial<Group>} input
+   * @returns {Group}
+   */
+  addGroup(input = {}) {
+    const group = {
+      ...input,
+      id: input.id ?? uid('g'),
+      label: input.label ?? 'Group',
+      x: input.x ?? 0,
+      y: input.y ?? 0,
+      width: Math.max(1, input.width ?? 320),
+      height: Math.max(1, input.height ?? 200),
+    };
+    if (this.groups.has(group.id)) throw new Error(`duplicate group id: ${group.id}`);
+    this.groups.set(group.id, group);
+    this.emit('group:add', group);
+    this._op(() => ({ type: 'group:add', group: structuredClone(group) }));
+    this._changed();
+    return group;
+  }
+
+  getGroup(id) {
+    return this.groups.get(id);
+  }
+
+  /** グループのプロパティを更新する（ラベル・位置・大きさ・style など。Undo 可） */
+  updateGroup(id, patch) {
+    const group = this.groups.get(id);
+    if (!group) return null;
+    const before = structuredClone(group);
+    Object.assign(group, patch);
+    group.width = Math.max(1, group.width);
+    group.height = Math.max(1, group.height);
+    this.emit('group:change', group);
+    this._op(() => ({ type: 'group:update', id, before, after: structuredClone(group) }));
+    this._changed();
+    return group;
+  }
+
+  /** グループ全体をスナップショットで置き換える（履歴の復元用） */
+  restoreGroup(snapshot) {
+    const group = this.groups.get(snapshot.id);
+    if (!group) return this.addGroup(structuredClone(snapshot));
+    const before = structuredClone(group);
+    for (const k of Object.keys(group)) if (!(k in snapshot)) delete group[k];
+    Object.assign(group, structuredClone(snapshot));
+    this.emit('group:change', group);
+    this._op(() => ({ type: 'group:update', id: group.id, before, after: structuredClone(group) }));
+    this._changed();
+    return group;
+  }
+
+  /**
+   * グループを削除する（Undo 可）。
+   * 既定ではメンバーのノードは残り、グループから外れるだけ。`withMembers: true` ならメンバーも削除する。
+   */
+  removeGroup(id, { withMembers = false } = {}) {
+    const group = this.groups.get(id);
+    if (!group) return false;
+    this.batch(() => {
+      const members = this.groupMembers(id).map((n) => n.id);
+      if (withMembers) this.removeNodes(members);
+      else for (const nid of members) this._setGroupField(nid, undefined);
+      this.groups.delete(id);
+      this._groupIndex = null;
+      this.emit('group:remove', group);
+      this._op(() => ({ type: 'group:remove', group: structuredClone(group) }));
+      this._changed();
+    });
+    return true;
+  }
+
+  removeGroups(ids, options) {
+    this.batch(() => {
+      for (const id of ids) this.removeGroup(id, options);
+    });
+  }
+
+  /**
+   * グループを相対移動する。既定ではメンバーのノードも一緒に動く（Undo 可）。
+   * @param {Iterable<string>} ids
+   * @param {{members?:boolean}} [options] members=false なら枠だけ動かす
+   */
+  moveGroups(ids, dx, dy, { members = true } = {}) {
+    if (dx === 0 && dy === 0) return;
+    const list = [...new Set(ids)].filter((id) => this.groups.has(id));
+    if (!list.length) return;
+    this.batch(() => {
+      this._moveGroupRects(list, dx, dy);
+      this._op(() => ({ type: 'groups:move', ids: list, dx, dy }));
+      if (members) {
+        const nodeIds = [];
+        for (const id of list) for (const n of this.groupMembers(id)) nodeIds.push(n.id);
+        if (nodeIds.length) this.moveNodes(nodeIds, dx, dy);
+      }
+      this._changed();
+    });
+  }
+
+  /** 枠の座標だけを動かす（履歴の復元・moveGroups の内部用。'op' は出さない） */
+  _moveGroupRects(ids, dx, dy) {
+    for (const id of ids) {
+      const g = this.groups.get(id);
+      if (!g) continue;
+      g.x += dx;
+      g.y += dy;
+    }
+    this.emit('groups:move', { ids, dx, dy });
+    this._changed();
+  }
+
+  /** @returns {{x:number,y:number,w:number,h:number}|null} */
+  groupRect(groupOrId) {
+    const g = typeof groupOrId === 'string' ? this.groups.get(groupOrId) : groupOrId;
+    if (!g) return null;
+    return { x: g.x, y: g.y, w: g.width, h: g.height };
+  }
+
+  /** ノードが属するグループ（子ノードは一番外側の親のグループ）。無ければ null */
+  groupOf(nodeOrId) {
+    const root = this.rootOf(nodeOrId);
+    return root?.group ? (this.groups.get(root.group) ?? null) : null;
+  }
+
+  /** グループのメンバー（親を持たないノード。子ノードは親と一緒に動くので含めない） */
+  groupMembers(groupOrId) {
+    const id = typeof groupOrId === 'string' ? groupOrId : groupOrId?.id;
+    if (!this._groupIndex) {
+      const map = new Map();
+      for (const n of this.nodes.values()) {
+        if (!n.group || n.parent) continue;
+        const list = map.get(n.group);
+        if (list) list.push(n.id);
+        else map.set(n.group, [n.id]);
+      }
+      this._groupIndex = map;
+    }
+    return (this._groupIndex.get(id) ?? []).map((nid) => this.nodes.get(nid)).filter(Boolean);
+  }
+
+  /**
+   * ノードをグループに入れる / グループから外す（Undo 可）。子ノードを渡すと一番外側の親が対象になる。
+   * @param {Iterable<string>|string} nodeIds
+   * @param {string|null} groupId null で外す
+   * @returns {string[]} 所属が変わったノード ID
+   */
+  setNodeGroup(nodeIds, groupId) {
+    const next = groupId && this.groups.has(groupId) ? groupId : undefined;
+    if (groupId && !next) return [];
+    const ids = typeof nodeIds === 'string' ? [nodeIds] : [...nodeIds];
+    const changed = [];
+    this.batch(() => {
+      for (const id of ids) {
+        const root = this.rootOf(id);
+        if (!root || (root.group ?? undefined) === next || changed.includes(root.id)) continue;
+        this._setGroupField(root.id, next);
+        changed.push(root.id);
+      }
+    });
+    return changed;
+  }
+
+  _setGroupField(id, groupId) {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    this.updateNode(id, { group: groupId });
+    if (groupId === undefined) delete node.group;
+  }
+
+  /** 点を含むグループ（後から追加したもの = 手前に描かれるものが先頭） */
+  groupsAt(wx, wy) {
+    const out = [];
+    for (const g of this.groups.values()) {
+      if (wx >= g.x && wx <= g.x + g.width && wy >= g.y && wy <= g.y + g.height) out.push(g);
+    }
+    return out.reverse();
+  }
+
+  /** 矩形と重なるグループ（描画順） */
+  groupsInRect(rect) {
+    const out = [];
+    for (const g of this.groups.values()) if (rectsOverlap(rect, this.groupRect(g))) out.push(g);
+    return out;
+  }
+
+  /**
+   * 矩形（ノードの矩形など）の中心を含むグループのうち一番小さいもの。ドラッグ後の所属判定に使う。
+   * @param {{x:number,y:number,w:number,h:number}} rect
+   * @param {{exclude?:Iterable<string>}} [options] 判定から除くグループ ID
+   */
+  groupForRect(rect, { exclude } = {}) {
+    const skip = exclude ? new Set(exclude) : null;
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    let best = null;
+    let bestArea = Infinity;
+    for (const g of this.groupsAt(cx, cy)) {
+      if (skip && skip.has(g.id)) continue;
+      const area = g.width * g.height;
+      if (area < bestArea) {
+        best = g;
+        bestArea = area;
+      }
+    }
+    return best;
+  }
+
+  /** ノード群（子孫込み）を囲む矩形。ノードが無ければ null */
+  nodesBounds(ids) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const id of ids) {
+      const r = this.nodeRect(id);
+      if (!r) continue;
+      x0 = Math.min(x0, r.x);
+      y0 = Math.min(y0, r.y);
+      x1 = Math.max(x1, r.x + r.w);
+      y1 = Math.max(y1, r.y + r.h);
+    }
+    return x0 === Infinity ? null : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  /**
+   * ノード群をぴったり囲む枠の矩形（上はラベル帯の分だけ広く取る）。
+   * @param {Iterable<string>} ids
+   * @param {number} [padding] 省略時は layout.groupPadding
+   */
+  groupRectFor(ids, padding = this.layout.groupPadding) {
+    const b = this.nodesBounds(ids);
+    if (!b) return null;
+    const top = padding + this.layout.groupLabelHeight;
+    return { x: b.x - padding, y: b.y - top, w: b.w + padding * 2, h: b.h + top + padding };
+  }
+
+  /** グループの大きさをメンバーに合わせる（Undo 可）。メンバーがいなければ何もしない */
+  fitGroup(id, { padding } = {}) {
+    const g = this.groups.get(id);
+    if (!g) return null;
+    const r = this.groupRectFor(this.groupMembers(id).map((n) => n.id), padding);
+    if (!r) return g;
+    return this.updateGroup(id, { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.w), height: Math.round(r.h) });
+  }
+
   /* ---------- 小さな矩形の配置（バッジ・メモ用） ---------- */
 
   /**
@@ -1415,17 +1687,18 @@ export class Graph extends Emitter {
     });
   }
 
-  /** 全ノードを囲む矩形 */
+  /** 全ノード・全グループを囲む矩形 */
   bounds() {
-    if (this.nodes.size === 0) return null;
+    if (this.nodes.size === 0 && this.groups.size === 0) return null;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const n of this.nodes.values()) {
-      const r = this.nodeRect(n);
+    const add = (r) => {
       if (r.x < x0) x0 = r.x;
       if (r.y < y0) y0 = r.y;
       if (r.x + r.w > x1) x1 = r.x + r.w;
       if (r.y + r.h > y1) y1 = r.y + r.h;
-    }
+    };
+    for (const n of this.nodes.values()) add(this.nodeRect(n));
+    for (const g of this.groups.values()) add(this.groupRect(g));
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
@@ -1433,11 +1706,15 @@ export class Graph extends Emitter {
 
   /**
    * 指定ノード群と、その内部で閉じているエッジを複製する。
-   * @returns {{nodes: Node[], edges: Edge[], idMap: Map<string,string>}}
+   * @param {{groupIds?: Iterable<string>}} [options] 一緒に複製するグループ（メンバーも複製される）
+   * @returns {{nodes: Node[], edges: Edge[], groups: Group[], idMap: Map<string,string>, groupMap: Map<string,string>}}
    */
-  duplicateNodes(ids, offset = { x: 40, y: 40 }) {
-    // 親も子も渡された場合、親を複製すれば子も付いてくるので子は除く
+  duplicateNodes(ids, offset = { x: 40, y: 40 }, { groupIds = [] } = {}) {
+    // グループを複製するときはメンバーも一緒に複製する
+    const groupList = [...new Set(groupIds)].filter((id) => this.groups.has(id));
     const given = new Set(ids);
+    for (const gid of groupList) for (const n of this.groupMembers(gid)) given.add(n.id);
+    // 親も子も渡された場合、親を複製すれば子も付いてくるので子は除く
     const tops = [...given].filter((id) => {
       let n = this.nodes.get(id);
       while (n?.parent) {
@@ -1449,9 +1726,19 @@ export class Graph extends Emitter {
     const idSet = new Set();
     for (const id of tops) for (const d of this.descendantIds(id, { includeSelf: true })) idSet.add(d);
     const idMap = new Map();
+    const groupMap = new Map();
     const nodes = [];
     const edges = [];
+    const groups = [];
     this.batch(() => {
+      for (const gid of groupList) {
+        const copy = structuredClone(this.groups.get(gid));
+        copy.id = uid('g');
+        copy.x += offset.x;
+        copy.y += offset.y;
+        groupMap.set(gid, copy.id);
+        groups.push(this.addGroup(copy));
+      }
       const copyTree = (srcId, parentId) => {
         const src = this.nodes.get(srcId);
         if (!src) return;
@@ -1461,6 +1748,8 @@ export class Graph extends Emitter {
         if (!parentId) {
           copy.x += offset.x;
           copy.y += offset.y;
+          // 一緒に複製したグループのメンバーは複製先のグループへ。それ以外は元のグループのまま
+          if (copy.group && groupMap.has(copy.group)) copy.group = groupMap.get(copy.group);
         }
         idMap.set(srcId, copy.id);
         nodes.push(this.addNode(copy, { parent: parentId ?? null }));
@@ -1468,7 +1757,7 @@ export class Graph extends Emitter {
       };
       for (const id of tops) copyTree(id, null);
       const seen = new Set();
-      for (const id of ids) {
+      for (const id of idSet) {
         for (const e of this.edgesOf(id)) {
           if (seen.has(e.id) || !idSet.has(e.source) || !idSet.has(e.target)) continue;
           seen.add(e.id);
@@ -1481,7 +1770,7 @@ export class Graph extends Emitter {
         }
       }
     });
-    return { nodes, edges, idMap };
+    return { nodes, edges, groups, idMap, groupMap };
   }
 
   /* ---------- 直列化 ---------- */
@@ -1503,16 +1792,20 @@ export class Graph extends Emitter {
       return rest;
     };
     const roots = [...this.nodes.values()].filter((n) => !this.isChild(n));
-    return { nodes: roots.map(pack), edges: [...this.edges.values()] };
+    const out = { nodes: roots.map(pack), edges: [...this.edges.values()] };
+    if (this.groups.size) out.groups = [...this.groups.values()];
+    return out;
   }
 
   /** 既存内容を置き換えて読み込む */
-  load({ nodes = [], edges = [] }) {
+  load({ nodes = [], edges = [], groups = [] }) {
     const prev = this.silentOps;
     this.silentOps = true;
     try {
       this.batch(() => {
         this.clear();
+        // ノードの group が参照できるよう、グループを先に登録する
+        for (const g of groups ?? []) this.addGroup(g);
         for (const n of nodes) this.addNode(n);
         for (const e of edges) this.addEdge(e);
       });
@@ -1527,7 +1820,9 @@ export class Graph extends Emitter {
     this.edges.clear();
     this._adjacency.clear();
     this._invalidateGoto();
+    this._groupIndex = null;
     this._children.clear();
+    this.groups.clear();
     this.nodeIndex.clear();
     this.edgeIndex.clear();
     this.emit('clear');

@@ -95,8 +95,14 @@ export class Minimap {
       c.setTransform(1, 0, 0, 1, 0, 0);
       c.clearRect(0, 0, this._cache.width, this._cache.height);
       c.setTransform(dpr * s, 0, 0, dpr * s, dpr * (ox - world.x * s), dpr * (oy - world.y * s));
-      c.fillStyle = mm.node;
       const minSize = 1 / (s * dpr); // 最低 1 デバイスピクセル
+      // グループは枠だけ（ノードの背面）
+      if (graph.groups?.size) {
+        c.strokeStyle = mm.group ?? mm.node;
+        c.lineWidth = 1 / (s * dpr);
+        for (const g of graph.groups.values()) c.strokeRect(g.x, g.y, g.width, g.height);
+      }
+      c.fillStyle = mm.node;
       for (const n of graph.nodes.values()) {
         if (selection.nodes.has(n.id)) continue;
         const r = graph.nodeRect(n);

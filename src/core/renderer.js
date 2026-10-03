@@ -31,6 +31,8 @@ export class Renderer {
     /** @type {(node:any)=>object} ノードのスタイル解決（種別スタイル + node.style） */
     this.resolveNodeStyle = (node) => (node.style ? { ...theme.node, ...node.style } : theme.node);
     this.resolveEdgeStyle = (edge) => (edge.style ? { ...theme.edge, ...edge.style } : theme.edge);
+    /** @type {(group:any)=>object} グループのスタイル解決（テーマ group.* + group.style） */
+    this.resolveGroupStyle = (group) => (group.style ? { ...this.theme.group, ...group.style } : this.theme.group);
     /** 直前の描画で置いたメモバッジの矩形（ヒットテスト・ホバー用） */
     this.noteBoxes = [];
     this._textCache = new Map();
@@ -66,6 +68,8 @@ export class Renderer {
    * @param {object[]} [state.deleteIconEdges] 削除アイコンを描くエッジ
    * @param {string|null} [state.hoverEdgeDelete] アイコンをホバー中のエッジ ID
    * @param {{nodes:Set<string>, edges:Set<string>}|null} [state.focus] 強調表示の対象。これ以外は薄く描く
+   * @param {Set<string>} [state.selectedGroups]
+   * @param {string|null} [state.hoverGroup]
    */
   render(state) {
     const t0 = performance.now();
@@ -84,6 +88,9 @@ export class Renderer {
 
     const visible = vp.visibleRect(64);
     const lod = vp.zoom <= theme.lodZoom;
+
+    // --- グループ（ノード・コネクタの背面） ---
+    this._drawGroups(state, visible, lod);
 
     let edges;
     let nodes;
@@ -178,6 +185,83 @@ export class Renderer {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.stats = { nodes: nodes.length, edges: edges.length, ms: performance.now() - t0 };
+  }
+
+  /**
+   * グループ（ラベル付きの枠）を描く。追加順に重ねるので、後から追加したものが手前。
+   * ラベルは左上の内側にタブとして描く。縮小して読めない大きさになったらラベルは省く。
+   */
+  _drawGroups(state, visible, lod) {
+    const { ctx, graph, viewport: vp, theme } = this;
+    if (!graph.groups || !graph.groups.size || !theme.group) return;
+    const zoom = vp.zoom;
+    const selected = state.selectedGroups;
+    for (const g of graph.groupsInRect(visible)) {
+      const st = this.resolveGroupStyle(g);
+      const isSel = !!selected && selected.has(g.id);
+      const isHover = state.hoverGroup === g.id;
+      const r = Math.min(st.radius ?? 0, g.width / 2, g.height / 2);
+
+      if (st.fill) {
+        ctx.fillStyle = st.fill;
+        this._roundRect(g.x, g.y, g.width, g.height, r);
+        ctx.fill();
+      }
+
+      // ラベルのタブ（縮小しすぎて読めないときは省く）
+      const labelH = graph.layout.groupLabelHeight;
+      if (!lod && g.label && labelH * zoom >= 8) {
+        const pad = st.labelPadding ?? 10;
+        const text = this._fit(String(g.label), Math.max(0, g.width - pad * 2), st.labelFont);
+        ctx.font = st.labelFont;
+        const tw = Math.min(g.width, ctx.measureText(text).width + pad * 2);
+        ctx.fillStyle = isSel ? st.selectedStroke : st.labelFill;
+        this._tabPath(g.x, g.y, tw, Math.min(labelH, g.height), r);
+        ctx.fill();
+        ctx.fillStyle = isSel ? '#ffffff' : st.labelColor;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, g.x + pad, g.y + Math.min(labelH, g.height) / 2 + 0.5);
+      }
+
+      // 枠
+      ctx.strokeStyle = isSel ? st.selectedStroke : isHover ? st.hoverStroke : st.stroke;
+      ctx.lineWidth = (isSel ? st.selectedStrokeWidth : st.strokeWidth) / zoom;
+      if (st.dash && !isSel) ctx.setLineDash(st.dash.map((v) => v / zoom));
+      this._roundRect(g.x, g.y, g.width, g.height, r);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // リサイズグリップ（選択中 / ホバー中のみ）
+      if (!lod && (isSel || isHover)) {
+        const k = Math.min(12 / Math.min(1, zoom), g.width / 4, g.height / 4);
+        const x1 = g.x + g.width - 4 / zoom;
+        const y1 = g.y + g.height - 4 / zoom;
+        ctx.strokeStyle = isSel ? st.selectedStroke : st.stroke;
+        ctx.lineWidth = 1.5 / zoom;
+        ctx.beginPath();
+        ctx.moveTo(x1 - k, y1);
+        ctx.lineTo(x1, y1 - k);
+        ctx.moveTo(x1 - k / 2, y1);
+        ctx.lineTo(x1, y1 - k / 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** 左上だけ枠に沿って丸め、右下を丸めたタブ形 */
+  _tabPath(x, y, w, h, r) {
+    const { ctx } = this;
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
   }
 
   /** 遠景描画: エッジは直線 1 パス、ノードは矩形のみ */

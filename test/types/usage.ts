@@ -38,6 +38,7 @@ import {
   type GotoLink,
   type Note,
   type NoteBox,
+  type Group,
 } from '../../types/core.js';
 import { CanvasFlowEditor, defaultContextMenuItems } from '../../types/lit.js';
 
@@ -421,6 +422,36 @@ el.addEventListener('note-hover', (e) => console.log('note' in e.detail ? e.deta
 el.addEventListener('note-edit', (e) => { if (!e.detail.note) e.preventDefault(); });
 editor.setTheme({ note: { fill: '#000', maxWidth: 120, colors: { mine: '#123456' } } });
 
+/* ---------- グループ（ラベル付きの枠） ---------- */
+
+const grp: Group = graph.addGroup({ label: '前処理', x: 0, y: 0, width: 400, height: 300, style: { stroke: '#f00' } });
+graph.addNode({ x: 20, y: 40, title: 'メンバー', group: grp.id });
+console.log(graph.groupMembers(grp).length, graph.groupOf('n1')?.label, graph.groupRect(grp.id)?.w);
+graph.moveGroups([grp.id], 10, 10, { members: false });
+graph.setNodeGroup(['n1'], null);
+graph.fitGroup(grp.id, { padding: 16 });
+graph.removeGroup(grp.id, { withMembers: true });
+const made = editor.groupNodes(['n1', 'n2'], { label: 'まとめ', padding: 32, select: false });
+console.log(made?.id, editor.groupSelection()?.label, editor.ungroup().length, editor.selectedGroups.length);
+editor.select({ groups: ['g1'] }, { additive: true });
+editor.resizeGroup('g1', 500, 400);
+const moves: Array<{ id: string; from: string | null; to: string | null }> = editor.updateGroupMembership(['n1']);
+console.log(moves.length, editor.selection.groups.size, editor.groupAt(0, 0)?.id);
+const ghit: HitTestResult = editor.hitTest(0, 0);
+if (ghit.type === 'group') console.log(ghit.group.label, ghit.header);
+editor.on('group:click', (d) => console.log(d.group.id, d.header, d.shiftKey));
+editor.on('group:membership', (d) => console.log(d.nodes.map((m) => m.to)));
+editor.on('selection:change', (d) => console.log(d.groups.length));
+editor.setTheme({ group: { fill: 'transparent', dash: [6, 4], labelFill: '#fde68a' } });
+const dataWithGroups: CanvasFlowData = serialize(graph, { groupIds: ['g1'] });
+console.log(dataWithGroups.groups?.[0]?.width);
+el.groupOnDrop = false;
+el.groupSelection({ label: 'x' });
+el.addGroup({ label: 'y' });
+el.addEventListener('group-edit', (e) => console.log(e.detail.group.label));
+el.addEventListener('group-membership', (e) => console.log(e.detail.nodes.length));
+console.log(el.editGroupLabel('g1'), el.groupMembers('g1').length);
+
 /* ---------- 間違った使い方はエラーになること ---------- */
 
 // @ts-expect-error 未知の描画方法
@@ -439,6 +470,8 @@ el.addEventListener('item-click', (e) => console.log(e.detail.item.toUpperCase()
 editor.setTheme({ nodes: { fill: '#fff' } });
 // @ts-expect-error 不正な強調モード
 editor.setFocusMode('everything');
+// @ts-expect-error グループの width は数値
+graph.addGroup({ width: '100px' });
 // @ts-expect-error 不正な向き
 graph.connectedTo(['n1'], { direction: 'sideways' });
 

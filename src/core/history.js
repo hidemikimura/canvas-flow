@@ -86,14 +86,24 @@ export class History extends Emitter {
   }
 
   _appendMerged(ops, op) {
-    const last = ops[ops.length - 1];
-    if (last && mergeKey(last) && mergeKey(last) === mergeKey(op) && mergeInto(last, op)) return;
+    const key = mergeKey(op);
+    if (key) {
+      // 平行移動どうしは順序を入れ替えても結果が同じなので、移動の連続をさかのぼって併合先を探す
+      // （グループのドラッグは groups:move と nodes:move が交互に来る）
+      for (let i = ops.length - 1; i >= 0; i--) {
+        const prev = ops[i];
+        if (mergeKey(prev) === key && mergeInto(prev, op)) return;
+        if (!isMove(prev) || !isMove(op)) break;
+      }
+    }
     ops.push(op);
   }
 
   _push(tx) {
     // 差分の無い更新は捨てる
-    tx.ops = tx.ops.filter((op) => !(op.type === 'node:update' || op.type === 'edge:update') || !deepEqual(op.before, op.after));
+    tx.ops = tx.ops.filter(
+      (op) => !(op.type === 'node:update' || op.type === 'edge:update' || op.type === 'group:update') || !deepEqual(op.before, op.after),
+    );
     if (!tx.ops.length) return;
     this.undoStack.push(tx);
     if (this.undoStack.length > this.limit) this.undoStack.shift();
@@ -172,6 +182,21 @@ export class History extends Emitter {
       case 'edge:update':
         g.restoreEdgeState(inverse ? op.before : op.after);
         break;
+      case 'group:add':
+        if (inverse) g.removeGroup(op.group.id);
+        else g.restoreGroup(op.group);
+        break;
+      case 'group:remove':
+        if (inverse) g.restoreGroup(op.group);
+        else g.removeGroup(op.group.id);
+        break;
+      case 'group:update':
+        g.restoreGroup(inverse ? op.before : op.after);
+        break;
+      case 'groups:move':
+        // メンバーの移動は別の nodes:move として記録されているので、ここでは枠だけ動かす
+        g._moveGroupRects(op.ids, inverse ? -op.dx : op.dx, inverse ? -op.dy : op.dy);
+        break;
     }
   }
 
@@ -197,6 +222,8 @@ export class History extends Emitter {
 /** 併合可能な操作の同一性キー */
 function mergeKey(op) {
   if (op.type === 'nodes:move') return 'move:' + [...op.ids].sort().join(',');
+  if (op.type === 'groups:move') return 'gmove:' + [...op.ids].sort().join(',');
+  if (op.type === 'group:update') return 'group:' + op.id;
   if (op.type === 'node:update') return 'node:' + op.id;
   if (op.type === 'edge:update') return 'edge:' + op.id;
   return null;
@@ -205,16 +232,20 @@ function mergeKey(op) {
 /** prev に next を取り込む。成功したら true */
 function mergeInto(prev, next) {
   if (prev.type !== next.type) return false;
-  if (prev.type === 'nodes:move') {
+  if (prev.type === 'nodes:move' || prev.type === 'groups:move') {
     prev.dx += next.dx;
     prev.dy += next.dy;
     return true;
   }
-  if (prev.type === 'node:update' || prev.type === 'edge:update') {
+  if (prev.type === 'node:update' || prev.type === 'edge:update' || prev.type === 'group:update') {
     prev.after = next.after;
     return true;
   }
   return false;
+}
+
+function isMove(op) {
+  return op.type === 'nodes:move' || op.type === 'groups:move';
 }
 
 function deepEqual(a, b) {

@@ -3,6 +3,19 @@
 このファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に沿って書き、
 バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [Unreleased]
+
+### 追加
+- **グループ（ラベル付きの枠）**: React Flow の LabeledGroupNode に相当する、ノードの背面に描く左上ラベル付きの枠。ノードは `node.group` にグループ ID を持つとメンバーになり、枠をドラッグするとメンバーごと動く。ノードをドラッグで置くと中心が入っているグループ（重なっていれば一番小さいもの）に入り、外に置くと外れる。貼り付け・複製・`insertJSON`・`addNodeAt` で置いたときも同じ（`groupOnDrop` / 属性 `group-on-drop="false"` で無効）。右下グリップで幅・高さのリサイズ、ラベル帯のダブルクリックでラベル編集、Ctrl/Cmd + G でグループ化、Ctrl/Cmd + Shift + G で解除。選択・範囲選択・削除（メンバーごと）・複製・コピー＆貼り付け・Undo / Redo・JSON（`groups` 配列）・ミニマップ・右クリックメニューに対応。API: `addGroup` / `updateGroup` / `removeGroup(id, { withMembers })` / `groupNodes(ids, options)` / `groupSelection()` / `ungroup(ids?)` / `resizeGroup` / `fitGroup` / `setNodeGroup` / `groupOf` / `groupMembers` / `groupAt` / `updateGroupMembership`、Graph に `groups` / `moveGroups` / `groupsAt` / `groupForRect` / `groupRectFor` など。イベント `group:add` / `group:remove` / `group:change` / `groups:move` / `group:click` / `group:edit` / `group:resize:end` / `group:membership`（Lit はハイフン区切り）。テーマ `theme.group`、グループ単位は `group.style`
+
+### 変更
+- `selection:change`（Lit: `selection-change`）・`context:menu` の `selection` に `groups` が増えた。`hitTest()` が `'group'` / `'group-resize'` を返すことがある（ノード・コネクタに当たらなかったとき）
+- `importData()` / `insertJSON()` の結果、`duplicateSelection()` / `paste()` の戻り値に `groups` が増えた
+- デモにグループの例（生成データの一部とパレットの「グループ」テンプレート）を追加
+
+### 修正
+- 型定義: `autoLayout()` の戻り値を実装どおり `string[]` に、`<canvas-flow-editor>` の `node-edit` / `item-edit` の detail を実装どおり `{ node }` / `{ node, item }` に
+
 ## [0.7.0] - 2026-09-24
 
 ### 追加

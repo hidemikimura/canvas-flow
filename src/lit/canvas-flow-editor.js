@@ -26,6 +26,7 @@ export { defaultContextMenuItems } from './context-menu.js';
  *  - focus-mode  off | connected | neighbors   選択ノードと繋がっている要素を強調し他を薄くする（既定 off）
  *  - context-menu "false" で無効             右クリックメニュー（既定 有効。read-only では出さない）
  *  - notes       "false" で無効              ノード・コネクタのメモのバッジ（既定 有効）
+ *  - group-on-drop "false" で無効            置いたノードを、置いた位置のグループに入れる（既定 有効）
  *
  * 右クリックメニューの項目は `contextMenuItems`（配列 or (ctx) => 配列）で差し替え・追加できる。
  * `ctx` には `context-menu` イベントの detail に加えて `el` / `editor` / `graph` / `defaultItems` が入る。
@@ -37,7 +38,8 @@ export { defaultContextMenuItems } from './context-menu.js';
  *  edge-type-change, focus-change, focus-select, edges-delete, insert,
  *  node-click, item-click, edge-click, canvas-click, canvas-dblclick, ready,
  *  context-menu（preventDefault で内蔵メニューを抑止できる）, context-menu-select,
- *  note-hover, note-edit
+ *  note-hover, note-edit,
+ *  group-add, group-remove, group-change, groups-move, group-click, group-edit, group-resize-end, group-membership
  *
  * メソッド: `editor` で NodeEditor を直接操作できるほか、よく使うものは委譲している。
  */
@@ -62,6 +64,7 @@ export class CanvasFlowEditor extends LitElement {
     exportFilename: { attribute: 'export-filename' },
     contextMenu: { attribute: 'context-menu', converter: (v) => v !== 'false' && v !== '0' },
     notes: { attribute: 'notes', converter: (v) => v !== 'false' && v !== '0' },
+    groupOnDrop: { attribute: 'group-on-drop', converter: (v) => v !== 'false' && v !== '0' },
     contextMenuItems: { attribute: false },
     _dropping: { state: true },
     _menu: { state: true },
@@ -266,6 +269,7 @@ export class CanvasFlowEditor extends LitElement {
     this.exportFilename = 'canvas-flow.json';
     this.contextMenu = true;
     this.notes = true;
+    this.groupOnDrop = true;
     this._noteTip = null;
     /** @type {Array<object>|((ctx:object)=>Array<object>)|null} */
     this.contextMenuItems = null;
@@ -303,6 +307,7 @@ export class CanvasFlowEditor extends LitElement {
       edgeDeleteIcon: this.edgeDeleteIcon,
       moveSnap: this.moveSnap,
       focusMode: this.focusMode,
+      groupOnDrop: this.groupOnDrop,
     });
     const ed = this.editor;
     if (this.edgeType && this.edgeType !== 'bezier') ed.setEdgeType(this.edgeType);
@@ -340,6 +345,13 @@ export class CanvasFlowEditor extends LitElement {
     relay('item:click', 'item-click');
     relay('edge:click', 'edge-click');
     relay('canvas:click', 'canvas-click');
+    relay('group:add', 'group-add');
+    relay('group:remove', 'group-remove');
+    relay('group:change', 'group-change');
+    relay('groups:move', 'groups-move');
+    relay('group:click', 'group-click');
+    relay('group:resize:end', 'group-resize-end');
+    relay('group:membership', 'group-membership');
     relay('render', 'render');
 
     ed.on('viewport:change', (v) => {
@@ -360,6 +372,12 @@ export class CanvasFlowEditor extends LitElement {
       if (this.readOnly) return;
       if (this._dispatch('node-edit', { node }, true)) {
         this._startEdit({ kind: 'title', nodeId: node.id, value: node.title ?? '', screenRect });
+      }
+    });
+    ed.on('group:edit', ({ group, screenRect }) => {
+      if (this.readOnly) return;
+      if (this._dispatch('group-edit', { group }, true)) {
+        this._startEdit({ kind: 'group', groupId: group.id, value: group.label ?? '', screenRect });
       }
     });
     ed.on('viewport:change', () => {
@@ -435,6 +453,7 @@ export class CanvasFlowEditor extends LitElement {
     if (changed.has('wheelMode')) ed.options.wheelMode = this.wheelMode;
     if (changed.has('dragMode')) ed.options.dragMode = this.dragMode;
     if (changed.has('readOnly')) ed.options.readOnly = this.readOnly;
+    if (changed.has('groupOnDrop')) ed.options.groupOnDrop = this.groupOnDrop;
     if (changed.has('notes')) {
       ed.options.notes = this.notes;
       this._noteTip = null;
@@ -506,7 +525,12 @@ export class CanvasFlowEditor extends LitElement {
       y: this.editor?.viewport.toWorld(x, y).y ?? 0,
       screen: { x, y },
       client: { x, y },
-      selection: { nodes: [...(this.editor?.selection.nodes ?? [])], edges: [...(this.editor?.selection.edges ?? [])] },
+      group: null,
+      selection: {
+        nodes: [...(this.editor?.selection.nodes ?? [])],
+        edges: [...(this.editor?.selection.edges ?? [])],
+        groups: [...(this.editor?.selection.groups ?? [])],
+      },
       ...detail,
     });
   }
@@ -712,6 +736,58 @@ export class CanvasFlowEditor extends LitElement {
     return this.editor?.gotoSources(nodeOrId) ?? [];
   }
 
+  /* ---------- グループ（ラベル付きの枠） ---------- */
+
+  /** グループを追加する（{label, x, y, width, height, style?, data?}） */
+  addGroup(spec) {
+    return this.editor?.addGroup(spec) ?? null;
+  }
+  /** グループのラベル・位置・大きさ・style などを更新する */
+  updateGroup(id, patch) {
+    return this.editor?.updateGroup(id, patch) ?? null;
+  }
+  /** グループを削除する。`{withMembers: true}` でメンバーのノードも削除 */
+  removeGroup(id, options) {
+    return this.editor?.removeGroup(id, options) ?? false;
+  }
+  /** ノード群を囲むグループを作ってメンバーにする */
+  groupNodes(nodeIds, options) {
+    return this.editor?.groupNodes(nodeIds, options) ?? null;
+  }
+  /** 選択中のノードをグループ化する（Ctrl/Cmd+G） */
+  groupSelection(options) {
+    return this.editor?.groupSelection(options) ?? null;
+  }
+  /** グループを解除する（枠だけ消してメンバーは残す。省略時は選択中のグループ） */
+  ungroup(ids) {
+    return this.editor?.ungroup(ids) ?? [];
+  }
+  /** グループの大きさをメンバーに合わせる */
+  fitGroup(id, options) {
+    return this.editor?.fitGroup(id, options) ?? null;
+  }
+  /** ノードをグループに入れる / null で外す */
+  setNodeGroup(nodeIds, groupId) {
+    return this.editor?.setNodeGroup(nodeIds, groupId) ?? [];
+  }
+  /** ノードが属するグループ */
+  groupOf(nodeOrId) {
+    return this.editor?.groupOf(nodeOrId) ?? null;
+  }
+  /** グループのメンバー */
+  groupMembers(groupOrId) {
+    return this.editor?.groupMembers(groupOrId) ?? [];
+  }
+  /** グループのラベルの編集を開始する（ラベルのダブルクリックと同じ） */
+  editGroupLabel(id) {
+    const ed = this.editor;
+    const g = ed?.graph.groups.get(id);
+    if (!g || this.readOnly) return false;
+    const rect = { x: g.x, y: g.y, w: g.width, h: Math.min(g.height, ed.graph.layout.groupLabelHeight) };
+    ed.emit('group:edit', { group: g, rect, screenRect: ed.worldRectToScreen(rect) });
+    return true;
+  }
+
   /* ---------- 子ノード ---------- */
 
   /** 子ノードを追加する */
@@ -891,6 +967,11 @@ export class CanvasFlowEditor extends LitElement {
       this.editor.canvas.focus({ preventScroll: true });
       return;
     }
+    if (ed.kind === 'group') {
+      this.editor.updateGroup(ed.groupId, { label: value });
+      this.editor.canvas.focus({ preventScroll: true });
+      return;
+    }
     if (ed.kind === 'title') this.editor.graph.updateNode(ed.nodeId, { title: value });
     else {
       const node = this.editor.graph.getNode(ed.nodeId);
@@ -967,7 +1048,9 @@ export class CanvasFlowEditor extends LitElement {
 
   render() {
     const z = Math.round(this._zoom * 100);
-    const hasSel = this.editor ? this.editor.selection.nodes.size + this.editor.selection.edges.size > 0 : false;
+    const hasSel = this.editor
+      ? this.editor.selection.nodes.size + this.editor.selection.edges.size + this.editor.selection.groups.size > 0
+      : false;
     const hasSelEdges = this.editor ? this.editor.selectedEdgeIds().length > 0 : false;
     const hasSelNodes = this.editor ? this.editor.selection.nodes.size > 0 : false;
     return html`
@@ -1009,6 +1092,7 @@ export class CanvasFlowEditor extends LitElement {
                     <button title="複製 (Ctrl+D)" ?disabled=${!hasSel} @click=${() => this.duplicateSelection()}>複製</button>
                     <button title="削除 (Delete)" ?disabled=${!hasSel} @click=${() => this.deleteSelection()}>削除</button>
                     <button title="選択範囲内のコネクタのみ削除 (Shift+Delete)" ?disabled=${!hasSelEdges} @click=${() => this.deleteSelectedEdges()}>コネクタ削除</button>
+                    <button title="選択したノードをグループで囲む (Ctrl+G)" ?disabled=${!hasSelNodes} @click=${() => this.groupSelection()}>グループ化</button>
                     <button title="自動整列（2 つ以上選択していればその範囲だけ）" @click=${() => this.autoLayout()}>整列</button>
                     <span class="sep"></span>
                     <button title="JSON ファイルを読み込み" @click=${() => this.openImportDialog()}>読み込み</button>`}

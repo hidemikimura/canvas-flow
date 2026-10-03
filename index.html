@@ -50,6 +50,11 @@
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .pal-row.child { padding-left: 14px; }
+      .pal-preview.grouped { border: 1px solid #94a3b8; border-radius: 7px; padding: 0 4px 4px; background: rgba(148,163,184,0.08); }
+      .pal-group-label {
+        align-self: flex-start; margin: 0 0 2px -4px; padding: 1px 6px; font-size: 10.5px; font-weight: 600;
+        color: #334155; background: #e2e8f0; border-radius: 6px 0 6px 0;
+      }
       .pal-badge {
         display: inline-block; font-size: 9px; line-height: 1.5; padding: 0 5px;
         border-radius: 999px; color: #fff; background: #475569; margin-left: 4px;
@@ -73,7 +78,7 @@
       <label>強調 <select id="focus"><option value="off">なし</option><option value="connected:lineage">同じ道筋（祖先と子孫）</option><option value="connected:downstream">進める先だけ</option><option value="connected:upstream">元をたどる</option><option value="connected:both">前後すべて</option><option value="neighbors:lineage">1 段だけ</option></select></label>
       <span id="stats"></span>
       <span style="margin-left:auto;color:#64748b">
-        左のパレットからドラッグして追加 / ホイール: ズーム / Shift+ホイール: パン / Space+ドラッグ: パン / ダブルクリック: 編集 / N: マウス位置にノード追加 / Ctrl+D: 複製 / Delete: 削除 / Ctrl+Shift+A: 強調を選択 / 右クリック: メニュー
+        左のパレットからドラッグして追加 / ホイール: ズーム / Shift+ホイール: パン / Space+ドラッグ: パン / ダブルクリック: 編集 / N: マウス位置にノード追加 / Ctrl+D: 複製 / Ctrl+G: グループ化 / Ctrl+Shift+G: グループ解除 / Delete: 削除 / Ctrl+Shift+A: 強調を選択 / 右クリック: メニュー
       </span>
     </header>
     <div class="stage">

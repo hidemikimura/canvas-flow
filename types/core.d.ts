@@ -189,8 +189,33 @@ export interface Node {
   note?: NoteSpec;
   /** `theme.node.*` の上書き */
   style?: Partial<NodeStyle>;
+  /**
+   * 所属するグループの id。グループを動かすと一緒に動く。
+   * 親を持たないノードだけが入れる（子ノードは親のグループに従う）。存在しないグループは無視される
+   */
+  group?: string;
   data?: unknown;
 }
+
+/**
+ * グループ（ノードの背面に描くラベル付きの枠）。React Flow の LabeledGroupNode に相当する。
+ * メンバーは `node.group` で決まる。
+ */
+export interface Group {
+  id: string;
+  /** 左上のタブに出すラベル */
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** `theme.group.*` の上書き */
+  style?: Partial<GroupStyle>;
+  data?: unknown;
+}
+
+/** `addGroup()` に渡す値。id は省略すると自動生成される（label 既定 'Group'、大きさ既定 320×200） */
+export type GroupInput = Partial<Group>;
 
 /** `addNode()` に渡す値。id は省略すると自動生成される */
 export type NodeInput = Omit<Node, 'id'> & { id?: string };
@@ -364,11 +389,34 @@ export interface FocusStyle {
   edgeWidth: number | null;
 }
 
+export interface GroupStyle {
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  /** 破線（画面ピクセル単位）。null で実線 */
+  dash: number[] | null;
+  radius: number;
+  /** 上端のラベル帯の高さ（ここがラベルの当たり判定） */
+  labelHeight: number;
+  labelPadding: number;
+  labelFont: string;
+  labelFill: string;
+  labelColor: string;
+  selectedStroke: string;
+  selectedStrokeWidth: number;
+  hoverStroke: string;
+  /** メンバーに合わせるときの内側の余白 */
+  padding: number;
+  minWidth: number;
+  minHeight: number;
+}
+
 export interface MinimapStyle {
   background: string;
   border: string;
   node: string;
   selectedNode: string;
+  group: string;
   viewportFill: string;
   viewportStroke: string;
 }
@@ -384,6 +432,7 @@ export interface Theme {
   note: NoteStyle;
   goto: GotoStyle;
   focus: FocusStyle;
+  group: GroupStyle;
   selectionBox: { fill: string; stroke: string };
   minimap: MinimapStyle;
   /** この拡大率以下で簡易描画（LOD）に切り替わる */
@@ -421,6 +470,10 @@ export interface GraphLayout {
   childIndent: number;
   /** 子ノード同士の縦の間隔 */
   childGap: number;
+  /** グループ上端のラベル帯の高さ */
+  groupLabelHeight: number;
+  /** グループをメンバーに合わせるときの余白 */
+  groupPadding: number;
 }
 
 /* ============================================================
@@ -439,10 +492,12 @@ export interface CanvasFlowData {
   version?: number;
   nodes: Node[];
   edges: Edge[];
+  /** グループ（無ければ省略される） */
+  groups?: Group[];
   viewport?: ViewportSnapshot | null;
 }
 
-export type CanvasFlowInput = CanvasFlowData | { nodes?: Node[]; edges?: Edge[] } | string;
+export type CanvasFlowInput = CanvasFlowData | { nodes?: Node[]; edges?: Edge[]; groups?: Group[] } | string;
 
 export interface ValidateResult {
   ok: boolean;
@@ -456,6 +511,7 @@ export interface ImportResult {
   mode: 'replace' | 'merge';
   nodes: Node[];
   edges: Edge[];
+  groups: Group[];
   warnings: string[];
   errors?: string[];
 }
@@ -465,7 +521,12 @@ export const FORMAT_VERSION: 1;
 
 export function serialize(
   graph: Graph,
-  options?: { nodeIds?: readonly string[] | null; viewport?: ViewportSnapshot | null },
+  options?: {
+    nodeIds?: Iterable<string> | null;
+    /** グループはメンバーごと書き出す */
+    groupIds?: Iterable<string> | null;
+    viewport?: ViewportSnapshot | null;
+  },
 ): CanvasFlowData;
 export function parse(input: string | object): ValidateResult;
 export function validate(data: unknown): ValidateResult;
@@ -473,7 +534,7 @@ export function remapForMerge(
   data: CanvasFlowData,
   graph: Graph,
   options?: { offset?: Point; forceNewIds?: boolean },
-): { nodes: Node[]; edges: Edge[]; idMap: Map<string, string> };
+): { nodes: Node[]; edges: Edge[]; groups: Group[]; idMap: Map<string, string>; groupMap: Map<string, string> };
 export function downloadText(text: string, filename: string, type?: string): void;
 export function pickTextFile(accept?: string): Promise<string | null>;
 
@@ -572,11 +633,12 @@ export interface RenderStats {
 /** 右クリック（`context:menu` / `context-menu`）の内容 */
 export interface ContextMenuDetail {
   /** 右クリックした対象の種類（`hitTest` と同じ） */
-  type: 'none' | 'node' | 'item' | 'port' | 'resize' | 'edge' | 'edge-delete';
+  type: 'none' | 'node' | 'item' | 'port' | 'resize' | 'edge' | 'edge-delete' | 'group' | 'group-resize';
   node: Node | null;
   item: NodeItem | null;
   edge: Edge | null;
   port: PortInfo | null;
+  group: Group | null;
   /** ワールド座標 */
   x: number;
   y: number;
@@ -585,7 +647,7 @@ export interface ContextMenuDetail {
   /** ビューポート基準（clientX / clientY） */
   client: Point;
   /** メニューを出す直前の選択 */
-  selection: { nodes: string[]; edges: string[] };
+  selection: { nodes: string[]; edges: string[]; groups: string[] };
   originalEvent: MouseEvent;
 }
 
@@ -650,6 +712,7 @@ export class Renderer {
   noteBoxes: NoteBox[];
   resolveNodeStyle: (node: Node) => NodeStyle;
   resolveEdgeStyle: (edge: Edge) => EdgeStyle;
+  resolveGroupStyle: (group: Group) => GroupStyle;
   stats: RenderStats;
   setTheme(theme: Theme): void;
 }
@@ -730,6 +793,10 @@ export interface GraphEvents {
   'edge:add': Edge;
   'edge:remove': Edge;
   'edge:change': Edge;
+  'group:add': Group;
+  'group:remove': Group;
+  'group:change': Group;
+  'groups:move': { ids: string[]; dx: number; dy: number };
 }
 
 export class Graph extends Emitter<GraphEvents> {
@@ -737,6 +804,8 @@ export class Graph extends Emitter<GraphEvents> {
 
   readonly nodes: Map<string, Node>;
   readonly edges: Map<string, Edge>;
+  /** グループ（描画順 = 追加順） */
+  readonly groups: Map<string, Group>;
   readonly nodeIndex: SpatialIndex;
   readonly edgeIndex: SpatialIndex;
   layout: GraphLayout;
@@ -889,17 +958,48 @@ export class Graph extends Emitter<GraphEvents> {
   bounds(): Rect | null;
   reindexAll(): void;
 
+  /* グループ */
+  addGroup(input?: GroupInput): Group;
+  getGroup(id: string): Group | undefined;
+  updateGroup(id: string, patch: Partial<Group>): Group | null;
+  /** 履歴の復元用 */
+  restoreGroup(snapshot: Group): Group;
+  /** 既定ではメンバーを残す。`withMembers: true` でメンバーも削除 */
+  removeGroup(id: string, options?: { withMembers?: boolean }): boolean;
+  removeGroups(ids: Iterable<string>, options?: { withMembers?: boolean }): void;
+  /** 既定ではメンバーも一緒に動かす */
+  moveGroups(ids: Iterable<string>, dx: number, dy: number, options?: { members?: boolean }): void;
+  groupRect(groupOrId: Group | string): Rect | null;
+  /** ノードが属するグループ（子ノードは一番外側の親のグループ） */
+  groupOf(nodeOrId: Node | string): Group | null;
+  /** メンバー（親を持たないノード） */
+  groupMembers(groupOrId: Group | string): Node[];
+  /** ノードをグループに入れる / null で外す。所属が変わったノード ID を返す */
+  setNodeGroup(nodeIds: Iterable<string> | string, groupId: string | null): string[];
+  /** 点を含むグループ（手前のものが先頭） */
+  groupsAt(wx: number, wy: number): Group[];
+  groupsInRect(rect: Rect): Group[];
+  /** 矩形の中心を含む一番小さいグループ */
+  groupForRect(rect: Rect, options?: { exclude?: Iterable<string> }): Group | null;
+  /** ノード群（子孫込み）を囲む矩形 */
+  nodesBounds(ids: Iterable<string>): Rect | null;
+  /** ノード群をラベル帯と余白込みで囲む枠の矩形 */
+  groupRectFor(ids: Iterable<string>, padding?: number): Rect | null;
+  /** グループの大きさをメンバーに合わせる */
+  fitGroup(id: string, options?: { padding?: number }): Group | null;
+
   /* まとめ操作 */
   duplicateNodes(
     ids: readonly string[],
     offset?: Point,
-  ): { nodes: Node[]; edges: Edge[]; idMap: Map<string, string> };
+    options?: { groupIds?: Iterable<string> },
+  ): { nodes: Node[]; edges: Edge[]; groups: Group[]; idMap: Map<string, string>; groupMap: Map<string, string> };
   /** 複数の変更を 1 回の 'change' と 1 つの Undo 項目にまとめる */
   batch<T>(fn: () => T): T;
 
-  /** 子ノードは `childs` に入れ子で出力される */
-  toJSON(): { nodes: Node[]; edges: Edge[] };
-  load(data: { nodes?: Node[]; edges?: Edge[] }): void;
+  /** 子ノードは `childs` に入れ子で出力される。グループがあれば `groups` も出る */
+  toJSON(): { nodes: Node[]; edges: Edge[]; groups?: Group[] };
+  load(data: { nodes?: Node[]; edges?: Edge[]; groups?: Group[] }): void;
   clear(): void;
 }
 
@@ -941,6 +1041,8 @@ export interface NodeEditorOptions {
   focusDepth?: number;
   /** 辿る向き（既定 'lineage' = 起点の祖先と子孫だけ） */
   focusDirection?: FocusDirection;
+  /** ドラッグ・貼り付け・複製・insertJSON・addNodeAt で置いたノードを、置いた位置のグループに入れる / 外に出したら外す（既定 true） */
+  groupOnDrop?: boolean;
 }
 
 export type HitTestResult =
@@ -950,7 +1052,10 @@ export type HitTestResult =
   | { type: 'port'; node: Node; port: PortInfo }
   | { type: 'resize'; node: Node }
   | { type: 'edge'; edge: Edge; note?: NoteBox }
-  | { type: 'edge-delete'; edge: Edge };
+  | { type: 'edge-delete'; edge: Edge }
+  | { type: 'group-resize'; group: Group }
+  /** header はラベル帯（上端）に当たったか */
+  | { type: 'group'; group: Group; header: boolean };
 
 export interface PointerInfo {
   world: Point;
@@ -1061,9 +1166,21 @@ export interface AutoLayoutOptions extends LayeredLayoutOptions {
 
 export type SearchQuery = string | RegExp | ((node: Node) => boolean);
 
+export interface GroupNodesOptions {
+  /** 既定 'Group' */
+  label?: string;
+  /** 内側の余白（既定 theme.group.padding） */
+  padding?: number;
+  id?: string;
+  style?: Partial<GroupStyle>;
+  data?: unknown;
+  /** 作ったグループを選択する（既定 true） */
+  select?: boolean;
+}
+
 export interface NodeEditorEvents {
   render: RenderStats;
-  'selection:change': { nodes: string[]; edges: string[] };
+  'selection:change': { nodes: string[]; edges: string[]; groups: string[] };
   'viewport:change': ViewportSnapshot;
   'graph:change': undefined;
   'history:change': { canUndo: boolean; canRedo: boolean };
@@ -1071,11 +1188,27 @@ export interface NodeEditorEvents {
   'node:remove': Node;
   'node:change': Node;
   'nodes:move': { ids: string[]; dx: number; dy: number };
-  'nodes:move:end': { ids: string[]; dx: number; dy: number; start: Array<{ id: string; x: number; y: number }> };
+  'nodes:move:end': {
+    ids: string[];
+    /** 一緒に動かしたグループ */
+    groups: string[];
+    dx: number;
+    dy: number;
+    start: Array<{ id: string; x: number; y: number }>;
+  };
   'node:resize:end': { id: string; from: number; to: number };
   'edge:add': Edge;
   'edge:remove': Edge;
   'edge:change': Edge;
+  'group:add': Group;
+  'group:remove': Group;
+  'group:change': Group;
+  'groups:move': { ids: string[]; dx: number; dy: number };
+  'group:click': ClickDetail & { group: Group; header: boolean };
+  'group:edit': { group: Group; rect: Rect; screenRect: Rect };
+  'group:resize:end': { id: string; from: { width: number; height: number }; to: { width: number; height: number } };
+  /** ドラッグで置いたノードがグループに入った / 出た */
+  'group:membership': { nodes: Array<{ id: string; from: string | null; to: string | null }> };
   'edge:delete-icon': { edge: Edge };
   'edges:delete': { ids: string[]; scope: EdgeDeleteScope };
   'edge-type:change': { type: EdgeType; edges: string[] | null };
@@ -1086,7 +1219,8 @@ export interface NodeEditorEvents {
   'note:edit': { kind: 'node' | 'edge'; id: string; note: Note | null; rect: Rect; screenRect: Rect };
   'node:edit': { node: Node; rect: Rect; screenRect: Rect };
   'item:edit': { node: Node; item: NodeItem; rect: Rect; screenRect: Rect };
-  'canvas:dblclick': Point;
+  /** グループの空き部分をダブルクリックしたときは group が入る */
+  'canvas:dblclick': Point & { group?: Group };
   'edge:dblclick': { edge: Edge; at: Point };
   'connect:cancel': { from: { node: string; port: PortKey } };
   'connect:rejected': { node: string; port: PortKey; reason: 'source-full' | 'target-full' };
@@ -1096,7 +1230,7 @@ export interface NodeEditorEvents {
   'canvas:click': ClickDetail;
   import: ImportResult;
   export: { data: CanvasFlowData; selectionOnly: boolean };
-  insert: { at: Point; anchor: InsertAnchor; nodes: Node[]; edges: Edge[] };
+  insert: { at: Point; anchor: InsertAnchor; nodes: Node[]; edges: Edge[]; groups: Group[] };
   layout: { nodes: string[] };
 }
 
@@ -1115,8 +1249,14 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   readonly history: History;
   readonly interaction: Interaction;
   readonly minimap: Minimap | null;
-  readonly selection: { nodes: Set<string>; edges: Set<string> };
-  readonly hover: { node: string | null; edge: string | null; port: PortKey | null; edgeDelete: string | null };
+  readonly selection: { nodes: Set<string>; edges: Set<string>; groups: Set<string> };
+  readonly hover: {
+    node: string | null;
+    edge: string | null;
+    port: PortKey | null;
+    edgeDelete: string | null;
+    group: string | null;
+  };
   theme: Theme;
   nodeTypes: Record<string, NodeTypeDef>;
   options: NodeEditorOptions;
@@ -1207,29 +1347,57 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
 
   /* 選択 */
   select(
-    target: { nodes?: readonly string[]; edges?: readonly string[] },
+    target: { nodes?: Iterable<string>; edges?: Iterable<string>; groups?: Iterable<string> },
     options?: { additive?: boolean },
   ): void;
-  toggleSelect(target: { nodes?: readonly string[]; edges?: readonly string[] }): void;
+  toggleSelect(target: { nodes?: Iterable<string>; edges?: Iterable<string>; groups?: Iterable<string> }): void;
   clearSelection(): void;
   selectAll(): void;
   selectInRect(rect: Rect, options?: { additive?: boolean }): void;
   get selectedNodes(): Node[];
+  get selectedGroups(): Group[];
   selectedEdgeIds(options?: { scope?: EdgeDeleteScope }): string[];
 
   /* 編集 */
+  /** 選択中のノード・コネクタ・グループを削除する（グループはメンバーごと） */
   deleteSelection(): void;
   /** 選択範囲のコネクタだけ削除する。戻り値は削除した ID */
   deleteSelectedEdges(options?: { scope?: EdgeDeleteScope }): string[];
   removeNode(id: string): boolean;
   removeEdge(id: string): boolean;
-  duplicateSelection(offset?: Point): { nodes: Node[]; edges: Edge[]; idMap: Map<string, string> } | null;
+  duplicateSelection(
+    offset?: Point,
+  ): { nodes: Node[]; edges: Edge[]; groups: Group[]; idMap: Map<string, string>; groupMap: Map<string, string> } | null;
   duplicateNode(id: string, offset?: Point): { nodes: Node[]; edges: Edge[]; idMap: Map<string, string> } | null;
   copySelection(): CanvasFlowData | null;
   paste(at?: Point): ImportResult | null;
   moveSelection(dx: number, dy: number): void;
   /** 選択ノードを移動単位で動かす（矢印キーの実装） */
   nudgeSelection(stepsX: number, stepsY: number, options?: { pixels?: number }): void;
+
+  /* グループ */
+  addGroup(spec: GroupInput): Group | null;
+  updateGroup(id: string, patch: Partial<Group>): Group | null;
+  /** 既定ではメンバーを残す。`withMembers: true` でメンバーも削除 */
+  removeGroup(id: string, options?: { withMembers?: boolean }): boolean;
+  getGroup(id: string): Group | null;
+  groupAt(wx: number, wy: number): Group | null;
+  groupOf(nodeOrId: Node | string): Group | null;
+  groupMembers(groupOrId: Group | string): Node[];
+  setNodeGroup(nodeIds: Iterable<string> | string, groupId: string | null): string[];
+  /** ノード群を囲むグループを作ってメンバーにする（1 回の Undo で戻る） */
+  groupNodes(nodeIds: Iterable<string>, options?: GroupNodesOptions): Group | null;
+  /** 選択ノードをグループ化する（Ctrl/Cmd+G） */
+  groupSelection(options?: GroupNodesOptions): Group | null;
+  /** 枠だけ消してメンバーを残す（Ctrl/Cmd+Shift+G）。省略時は選択中のグループ。戻り値は選択し直したノード ID */
+  ungroup(ids?: Iterable<string>): string[];
+  resizeGroup(id: string, width?: number, height?: number): Group | null;
+  fitGroup(id: string, options?: { padding?: number }): Group | null;
+  /** 置いた位置でグループへの出入りを決め直す（ドラッグ後に自動で呼ばれる） */
+  updateGroupMembership(
+    nodeIds: Iterable<string>,
+    options?: { exclude?: Iterable<string> },
+  ): Array<{ id: string; from: string | null; to: string | null }>;
   setPortVisible(nodeId: string, portKey: PortKey, visible: boolean): boolean;
   setPortsVisible(nodeId: string, visible: boolean, itemId?: string): boolean;
   /** 子ノードは幅を変えられないため null を返す */
@@ -1253,7 +1421,8 @@ export class NodeEditor extends Emitter<NodeEditorEvents> {
   addNodeAtCenter(spec: NodeInput, options?: AddNodeAtOptions): Node | null;
 
   /* 自動整列 */
-  autoLayout(options?: AutoLayoutOptions): Map<string, Point> | null;
+  /** 移動対象になったノード ID */
+  autoLayout(options?: AutoLayoutOptions): string[];
 
   /* Undo / Redo */
   get canUndo(): boolean;

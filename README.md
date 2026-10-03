@@ -16,6 +16,7 @@ Canvas 2D ベースの高速ノードエディタライブラリです。
 - コネクタの描画方法を曲線（ベジェ）／直線／直角（階段状）から選べる。全体の既定とコネクタ単位の両方で指定可
 - 選択したノードと同じ流れにある要素だけを強調し、他を薄く表示（`focus-mode`）。強調されている要素はまとめて選択できる
 - ノードの中に子ノードを入れられる（`childs`）。何段でも入れ子にでき、位置と幅は親が自動計算する
+- ノードをラベル付きの枠で囲むグループ（React Flow の LabeledGroupNode 相当）。枠をドラッグするとメンバーごと動き、ノードをドラッグで出し入れできる。Ctrl/Cmd + G でグループ化
 - 自動整列（階層レイアウト）: コネクタが左から右へ流れ、他のノードの上を横切らないように並べ直す
 - Undo / Redo（ドラッグやリサイズは 1 操作にまとめて記録）
 - ノードの幅リサイズ（右下グリップ）
@@ -157,6 +158,7 @@ npm run build        # dist/ にライブラリをビルド（ESM）
 | `focus-mode` | `'off' \| 'connected' \| 'neighbors'` | `'off'` | 選択ノードと同じ流れにある要素を強調し、他を薄く描く |
 | `context-menu` | boolean | `true` | 内蔵の右クリックメニュー（`"false"` で無効。`read-only` では出ない） |
 | `notes` | boolean | `true` | メモのバッジを描く（`"false"` で非表示） |
+| `group-on-drop` | boolean | `true` | ドラッグ・貼り付け・複製などで置いたノードを、置いた位置のグループに入れる / 外に出したら外す（`"false"` で無効） |
 
 コア `NodeEditor` のオプションにはさらに `historyLimit`（既定 200）、`minNodeWidth`（既定 100）、`keyboardScope`（キーボード操作を受け付ける範囲の要素）、`rules`（`{ maxInputs, maxOutputs, onFull }`）、`edgeDeleteIcon`（既定 true）、`wheelGestureGap`（既定 250ms。この間隔以内のホイールイベントは同じ操作として扱う）があります。
 
@@ -396,6 +398,58 @@ el.rootNodeOf('n2');                           // 一番外側の親（自分が
 el.theme = { node: { childIndent: 16, childGap: 10 } };   // editor.setTheme(...) でも同じ
 ```
 
+#### グループ（ラベル付きの枠）
+
+ノードの背面に、左上にラベルの付いた枠（グループ）を置けます。React Flow の
+[LabeledGroupNode](https://reactflow.dev/ui/components/labeled-group-node) に相当します。
+ノードは `group` にグループの ID を持つとメンバーになり、枠をドラッグするとメンバーごと動きます。
+
+```js
+el.load({
+  groups: [{ id: 'g1', label: '前処理', x: 0, y: 0, width: 560, height: 160 }],
+  nodes: [
+    { id: 'a', title: '受付', x: 24, y: 48, output: true, group: 'g1' },
+    { id: 'b', title: '振り分け', x: 312, y: 48, input: true, group: 'g1' },
+    { id: 'c', title: '外のノード', x: 700, y: 48, input: true },
+  ],
+  edges: [{ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in' }],
+});
+
+el.groupNodes(['a', 'b'], { label: '前処理' }); // ノード群をぴったり囲むグループを作ってメンバーにする
+el.groupSelection();                              // 選択ノードをグループ化（Ctrl/Cmd + G）
+el.ungroup();                                     // 選択中のグループを解除（枠だけ消す。Ctrl/Cmd + Shift + G）
+el.addGroup({ label: '空の枠', x: 0, y: 300, width: 320, height: 200 });
+el.updateGroup('g1', { label: '名前を変更', style: { stroke: '#f59e0b' } });
+el.setNodeGroup(['c'], 'g1');                     // ノードをグループに入れる（null で外す）
+el.fitGroup('g1');                                // 大きさをメンバーに合わせる
+el.removeGroup('g1');                             // 枠だけ削除（{ withMembers: true } でメンバーも削除）
+el.groupOf('a');                                  // ノードが属するグループ
+el.groupMembers('g1');                            // メンバーのノード
+```
+
+グループの扱いは次のとおりです。
+
+- **描画**: すべてのノード・コネクタの背面に、追加順に重ねて描く。ラベルは左上の内側にタブとして出る（選択中は強調色）
+- **移動**: 枠の空いている部分（またはラベル）をドラッグすると、メンバーごと動く。ノードの上はノードの操作が優先される
+- **出し入れ**: ノードをドラッグして置くと、ノードの中心が入っているグループ（重なっていれば一番小さいもの）のメンバーになり、外に置くと外れる。移動と同じ 1 回の Undo で戻る。貼り付け・複製・`insertJSON`・`addNodeAt`（`group` 未指定時）で置いたときも同じ規則で決まる。`group-on-drop="false"`（コア: `groupOnDrop: false`）で無効にでき、そのときは `setNodeGroup()` で明示的に変える
+- **大きさ**: 選択中・ホバー中に右下のグリップが出て、ドラッグで幅と高さを変えられる（最小 `theme.group.minWidth` / `minHeight`）。枠は自動では広がらないので、必要なら `fitGroup()` で合わせる
+- **ラベル**: 上端の帯（`theme.group.labelHeight`）をダブルクリックするとインライン編集
+- **選択**: クリックで選択（Shift / Ctrl / Cmd で追加）。範囲選択は完全に含まれるグループも選ぶ。`selection.groups` / `selection-change` の `groups`
+- **削除・複製・コピー**: グループを選んで Delete するとメンバーごと消える（枠だけ外すなら「グループを解除」）。複製・コピー＆貼り付け・JSON の書き出しはメンバーと内部のコネクタも一緒
+- **子ノード**: グループに入るのは親を持たないノードだけ。子ノードは親と一緒に動き、`groupOf()` は一番外側の親のグループを返す
+- **入れ子**: グループの中にグループは入れられない（重ねて置くことはできるが、親子関係は持たない）
+
+右クリックメニューには、グループの上で「ラベルを編集 / メンバーに合わせる / メンバーを選択 / 複製 / グループを解除 / メンバーごと削除 / ここにノードを追加」、ノードの上で「グループ化」「（グループ名）から外す」、空白で「ここにグループを追加」が出ます。
+
+見た目はテーマ `theme.group` で全体を、`group.style` でグループごとに変えられます。
+
+```js
+el.theme = {
+  group: { fill: 'rgba(59,130,246,0.06)', stroke: '#93c5fd', labelFill: '#dbeafe', labelColor: '#1e40af', dash: [6, 4] },
+};
+el.updateGroup('g1', { style: { stroke: '#f59e0b', labelFill: '#fef3c7' } });
+```
+
 #### メモ（`note`）
 
 ノードとコネクタに短いメモを付けられます。ノードの外側（既定は右上）に色分けしたバッジで出るので、ノードの大きさは変わりません。置き場所は他のノードや他のバッジと重ならないように自動で選ばれます。
@@ -538,7 +592,9 @@ el.editor.selectedEdgeIds({ scope });            // 削除せずに対象 ID を
 `focus-change`（`{mode, direction, nodes, edges}` 強調表示の対象が変わった）,
 `node-click` / `item-click` / `edge-click` / `canvas-click`（クリック。後述）,
 `canvas-dblclick`（空白ダブルクリック、ワールド座標）, `edge-dblclick`, `connect-cancel`,
-`node-edit` / `item-edit`（`preventDefault()` すると内蔵のインライン編集を抑止し、独自 UI を出せる）, `render`（描画統計）
+`node-edit` / `item-edit`（`preventDefault()` すると内蔵のインライン編集を抑止し、独自 UI を出せる）, `render`（描画統計）,
+`group-add`, `group-remove`, `group-change`, `groups-move`, `group-click`（`{group, header}`）, `group-edit`（ラベルのダブルクリック。`preventDefault()` で内蔵の編集を抑止）,
+`group-resize-end`（`{id, from, to}`）, `group-membership`（`{nodes: [{id, from, to}]}` ドラッグでノードがグループに入った / 出た）
 
 #### クリックイベント
 
@@ -687,6 +743,11 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
 | ノードをドラッグ | 選択中ノードをまとめて移動 |
 | ポートをドラッグして別ポートへ | コネクタ作成（出力 → 入力のみ。接続数上限を超える先には繋げない） |
 | ノード右下のグリップをドラッグ | 幅のリサイズ（最小幅は `minNodeWidth`、既定 100） |
+| グループの空き部分・ラベルをドラッグ | グループをメンバーごと移動 |
+| グループ右下のグリップをドラッグ | グループの幅・高さを変える |
+| ノードをグループの中 / 外へドラッグ | グループに入れる / 外す（`group-on-drop`） |
+| グループのラベルをダブルクリック | ラベルのインライン編集 |
+| Ctrl/Cmd + G / Ctrl/Cmd + Shift + G | 選択ノードをグループ化 / 選択中のグループを解除 |
 | 2 本指（タッチ） | ピンチでズーム、同時にパン |
 | コネクタをクリック | 選択 |
 | コネクタ中央の × アイコンをクリック | そのコネクタを削除（ホバー中・選択中に表示。Undo 可） |
@@ -695,7 +756,7 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
 | 中ボタン / Space + ドラッグ | パン |
 | ホイール | ズーム（Shift + ホイールでパン。`wheel-mode="pan"` なら逆）。パンはトラックパッドの動かした方向そのまま。慣性スクロール中は途中で Shift を離しても最初の動作（ズーム / パン）を維持 |
 | ダブルクリック（ヘッダ / 項目） | タイトル / 項目のインライン編集 |
-| Delete / Backspace | 選択中のノード・コネクタを削除 |
+| Delete / Backspace | 選択中のノード・コネクタ・グループ（メンバーごと）を削除 |
 | Shift + Delete / ツールバー「コネクタ削除」 | 選択範囲内のコネクタだけを削除（ノードは残す。Undo 可） |
 | Ctrl/Cmd + D | 複製（範囲内のコネクタも複製） |
 | Ctrl/Cmd + C / V | コピー / 貼り付け（カーソル位置） |
@@ -720,11 +781,13 @@ el.editor.graph.nodePorts(node, { visibleOnly: true }); // 表示中のポート
   "version": 1,
   "nodes": [ { "id": "a", "title": "A", "x": 0, "y": 0, "items": [], "childs": [] } ],
   "edges": [ { "id": "e1", "source": "a", "sourcePort": "out", "target": "b", "targetPort": "in" } ],
+  "groups": [ { "id": "g1", "label": "前処理", "x": -24, "y": -48, "width": 560, "height": 160 } ],
   "viewport": { "tx": 0, "ty": 0, "zoom": 1 }
 }
 ```
 
-`format` / `version` / `viewport` は省略可能で、プレーンな `{nodes, edges}` も読み込めます。
+`format` / `version` / `groups` / `viewport` は省略可能で、プレーンな `{nodes, edges}` も読み込めます。
+グループのメンバーはノードの `"group": "g1"` で表します（存在しないグループを指していれば無視されます）。
 `goto`（ID 指定の遷移）もノード・項目の値としてそのまま保存されます。子ノードは `nodes` の中に `childs` として入れ子で出力されます（トップレベルの `nodes` には親を持たないノードだけが並びます）。子ノードの `x` / `y` / `width` は親が決めるため出力されず、読み込み時に指定されていても無視されます。
 
 ### 使い方

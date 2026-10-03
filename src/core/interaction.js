@@ -4,6 +4,8 @@
  *  - 左ドラッグ（ノード上）      : 選択ノードの移動（未選択ノードならそのノードだけ）。moveSnap 設定時は指定単位に揃う
  *  - 左ドラッグ（ポート上）      : コネクタ作成
  *  - 左ドラッグ（ノード右下グリップ）: 幅のリサイズ
+ *  - 左ドラッグ（グループ）      : グループをメンバーごと移動。右下グリップで大きさを変える
+ *  - ノードをドラッグで置く      : 置いた位置のグループに入る / グループの外に出すと外れる（groupOnDrop）
  *  - 2 本指（タッチ）            : ピンチでズーム、同時にパン
  *  - 左ドラッグ（空白）          : dragMode='pan' ならパン、Shift で範囲選択（dragMode='select' なら逆）
  *  - 中ボタン / Space+左ドラッグ : パン
@@ -15,6 +17,7 @@
  *  - Delete / Backspace          : 選択削除（Shift 付きで選択範囲内のコネクタのみ削除）
  *  - Ctrl/Cmd + A / C / V / D    : 全選択 / コピー / 貼り付け / 複製
  *    （コピーはシステムのクリップボードにも JSON として書き込み、貼り付けは JSON テキストも受け付ける）
+ *  - Ctrl/Cmd + G / Shift+G      : 選択をグループ化 / グループ解除
  *  - Ctrl/Cmd + 0 / + / -        : 縮尺リセット / 拡大 / 縮小
  *  - Ctrl/Cmd + Z / Shift+Z / Y  : Undo / Redo
  *  - Escape                      : 操作キャンセル・選択解除
@@ -26,7 +29,7 @@ export class Interaction {
     this.canvas = editor.canvas;
     this.dragThreshold = 3;
     this.spaceDown = false;
-    this._mode = null; // 'pan' | 'drag' | 'box' | 'connect' | 'resize' | 'pending' | 'pinch' | 'pinch-end'
+    this._mode = null; // 'pan' | 'drag' | 'box' | 'connect' | 'resize' | 'group-resize' | 'pending' | 'pinch' | 'pinch-end'
     this._down = null;
     this._lastClientPos = null;
     /** ポインタが canvas 上にあるか */
@@ -53,6 +56,8 @@ export class Interaction {
         }
       } else if (hit.type === 'edge' || hit.type === 'edge-delete') {
         if (!ed.selection.edges.has(hit.edge.id)) ed.select({ edges: [hit.edge.id] });
+      } else if (hit.type === 'group' || hit.type === 'group-resize') {
+        if (!ed.selection.groups.has(hit.group.id)) ed.select({ groups: [hit.group.id] });
       }
       const rect = this.canvas.getBoundingClientRect();
       ed.emit('context:menu', {
@@ -61,11 +66,12 @@ export class Interaction {
         item: hit.item ?? null,
         edge: hit.edge ?? null,
         port: hit.port ?? null,
+        group: hit.group ?? null,
         x: w.x,
         y: w.y,
         screen: { x: e.clientX - rect.left, y: e.clientY - rect.top },
         client: { x: e.clientX, y: e.clientY },
-        selection: { nodes: [...ed.selection.nodes], edges: [...ed.selection.edges] },
+        selection: { nodes: [...ed.selection.nodes], edges: [...ed.selection.edges], groups: [...ed.selection.groups] },
         originalEvent: e,
       });
     };
@@ -116,7 +122,7 @@ export class Interaction {
   _onCopy(e) {
     if (!this.active || this._isEditableTarget(e)) return;
     const ed = this.editor;
-    if (!ed.selection.nodes.size) return;
+    if (!ed.selection.nodes.size && !ed.selection.groups.size) return;
     ed.copySelection();
     if (e.clipboardData) {
       e.clipboardData.setData('text/plain', ed.exportJSON({ selectionOnly: true, includeViewport: false, pretty: false }));
@@ -267,6 +273,31 @@ export class Interaction {
         this._begin(e, 'pending', { s, w, hit, target: 'edge' });
         break;
       }
+      case 'group-resize': {
+        if (readOnly) {
+          this._begin(e, 'pending', { s, w, hit, target: 'nodes', moved: false, total: { x: 0, y: 0 } });
+          break;
+        }
+        if (!ed.selection.groups.has(hit.group.id)) ed.select({ groups: [hit.group.id] });
+        ed.history.begin('resize');
+        this._begin(e, 'group-resize', {
+          s,
+          w,
+          group: hit.group,
+          start: { width: hit.group.width, height: hit.group.height },
+          // 掴んだ位置とグリップの角とのずれ（掴んだ瞬間に大きさが跳ねないように）
+          grab: { x: hit.group.x + hit.group.width - w.x, y: hit.group.y + hit.group.height - w.y },
+        });
+        break;
+      }
+      case 'group': {
+        const id = hit.group.id;
+        if (this._isAdditive(e)) ed.toggleSelect({ groups: [id] });
+        else if (!ed.selection.groups.has(id)) ed.select({ groups: [id] });
+        // ドラッグ準備（しきい値を超えたらメンバーごと移動）
+        this._begin(e, 'pending', { s, w, hit, target: 'nodes', moved: false, total: { x: 0, y: 0 } });
+        break;
+      }
       default: {
         const wantSelect = ed.options.dragMode === 'select' ? !e.shiftKey : e.shiftKey;
         this._begin(e, 'pending', { s, w, hit, target: wantSelect ? 'box' : 'pan', additive: e.ctrlKey || e.metaKey });
@@ -282,7 +313,7 @@ export class Interaction {
   /** 進行中の操作を状態を変えずに中断する */
   _cancelCurrent() {
     const ed = this.editor;
-    if (this._mode === 'drag' || this._mode === 'resize') ed.history.end();
+    if (this._mode === 'drag' || this._mode === 'resize' || this._mode === 'group-resize') ed.history.end();
     this._mode = null;
     this._down = null;
     ed.pendingEdge = null;
@@ -340,6 +371,7 @@ export class Interaction {
       if (Math.abs(mx) < this.dragThreshold && Math.abs(my) < this.dragThreshold) return;
       if (d.target === 'nodes') {
         if (ed.options.readOnly) return void (this._mode = null);
+        if (!ed.selection.nodes.size && !ed.selection.groups.size) return void (this._mode = null);
         this._mode = 'drag';
         ed.history.begin('move');
         // 子ノードは自分で座標を持たないので、実際に動かすのは一番外側の親
@@ -349,10 +381,15 @@ export class Interaction {
           if (!roots.has(root.id)) roots.set(root.id, { id: root.id, x: root.x, y: root.y });
         }
         d.startPositions = [...roots.values()];
-        // スナップ用: 掴んだノード（子ならその親）を基準にし、実際に適用した移動量を別に持つ
-        const grabbed = ed.graph.rootOf(d.hit.node) ?? d.hit.node;
-        const anchorId = roots.has(grabbed.id) ? grabbed.id : d.startPositions[0]?.id;
-        d.anchorStart = d.startPositions.find((p) => p.id === anchorId) ?? d.startPositions[0];
+        d.groupStart = ed.selectedGroups.map((g) => ({ id: g.id, x: g.x, y: g.y }));
+        // スナップ用: 掴んだノード（子ならその親）またはグループを基準にし、実際に適用した移動量を別に持つ
+        if (d.hit.group) {
+          d.anchorStart = d.groupStart.find((p) => p.id === d.hit.group.id) ?? d.groupStart[0] ?? d.startPositions[0];
+        } else {
+          const grabbed = ed.graph.rootOf(d.hit.node) ?? d.hit.node;
+          const anchorId = roots.has(grabbed.id) ? grabbed.id : d.startPositions[0]?.id;
+          d.anchorStart = d.startPositions.find((p) => p.id === anchorId) ?? d.startPositions[0] ?? d.groupStart[0];
+        }
         d.applied = { x: 0, y: 0 };
       } else if (d.target === 'box') {
         this._mode = 'box';
@@ -383,12 +420,12 @@ export class Interaction {
           const mdx = targetX - d.applied.x;
           const mdy = targetY - d.applied.y;
           if (mdx || mdy) {
-            ed.graph.moveNodes([...ed.selection.nodes], mdx, mdy);
+            ed._moveSelected(mdx, mdy);
             d.applied.x = targetX;
             d.applied.y = targetY;
           }
         } else {
-          ed.graph.moveNodes([...ed.selection.nodes], wdx, wdy);
+          ed._moveSelected(wdx, wdy);
           d.applied.x = d.total.x;
           d.applied.y = d.total.y;
         }
@@ -397,6 +434,18 @@ export class Interaction {
       case 'resize': {
         const w = ed.viewport.toWorld(s.x, s.y);
         ed.resizeNode(d.node.id, w.x - d.node.x);
+        break;
+      }
+      case 'group-resize': {
+        const w = ed.viewport.toWorld(s.x, s.y);
+        const g = d.group;
+        let width = w.x + d.grab.x - g.x;
+        let height = w.y + d.grab.y - g.y;
+        if (ed.moveSnap) {
+          width = ed.snapValue(g.x + width) - g.x;
+          height = ed.snapValue(g.y + height) - g.y;
+        }
+        ed.resizeGroup(g.id, width, height);
         break;
       }
       case 'box': {
@@ -469,6 +518,9 @@ export class Interaction {
         if (d.target === 'pan' || d.target === 'box') {
           if (!d.additive) ed.clearSelection();
           ed.emit('canvas:click', detail);
+        } else if (d.target === 'nodes' && d.hit.group) {
+          const group = ed.graph.groups.get(d.hit.group.id);
+          if (group) ed.emit('group:click', { ...detail, group, header: !!d.hit.header });
         } else if (d.target === 'nodes') {
           const hit = d.hit;
           const node = ed.graph.nodes.get(hit.node.id);
@@ -496,13 +548,29 @@ export class Interaction {
         break;
       }
       case 'drag': {
+        // 置いた位置でグループへの出入りを決める（同じ Undo 単位に入れる）
+        if (ed.options.groupOnDrop !== false && (d.applied.x || d.applied.y)) {
+          ed.updateGroupMembership(ed.selection.nodes, { exclude: ed.selection.groups });
+        }
         ed.history.end();
-        ed.emit('nodes:move:end', { ids: [...ed.selection.nodes], dx: d.applied.x, dy: d.applied.y, start: d.startPositions });
+        ed.emit('nodes:move:end', {
+          ids: [...ed.selection.nodes],
+          groups: [...ed.selection.groups],
+          dx: d.applied.x,
+          dy: d.applied.y,
+          start: d.startPositions,
+        });
         break;
       }
       case 'resize': {
         ed.history.end();
         ed.emit('node:resize:end', { id: d.node.id, from: d.startWidth, to: ed.graph.nodeWidth(d.node) });
+        break;
+      }
+      case 'group-resize': {
+        ed.history.end();
+        const g = ed.graph.groups.get(d.group.id);
+        if (g) ed.emit('group:resize:end', { id: g.id, from: d.start, to: { width: g.width, height: g.height } });
         break;
       }
       case 'box': {
@@ -564,8 +632,10 @@ export class Interaction {
       port: hit.type === 'port' ? { node: hit.node.id, port: hit.port.key } : null,
       edgeDelete: hit.type === 'edge-delete' ? hit.edge.id : null,
       note: noteKey,
+      group: hit.type === 'group' || hit.type === 'group-resize' ? hit.group.id : null,
     };
     const changed =
+      next.group !== h.group ||
       next.node !== h.node ||
       next.edge !== h.edge ||
       next.edgeDelete !== h.edgeDelete ||
@@ -586,11 +656,11 @@ export class Interaction {
     this.canvas.style.cursor =
       hit.type === 'edge-delete'
         ? 'pointer'
-        : hit.type === 'resize' && !ed.options.readOnly
+        : (hit.type === 'resize' || hit.type === 'group-resize') && !ed.options.readOnly
         ? 'nwse-resize'
         : hit.type === 'port'
           ? 'crosshair'
-          : hit.type === 'node' || hit.type === 'item' || hit.type === 'resize'
+          : hit.type === 'node' || hit.type === 'item' || hit.type === 'resize' || hit.type === 'group' || hit.type === 'group-resize'
             ? 'move'
             : hit.type === 'edge'
               ? 'pointer'
@@ -666,6 +736,12 @@ export class Interaction {
       ed.emit('node:edit', { node: hit.node, rect, screenRect: ed.worldRectToScreen(rect) });
     } else if (hit.type === 'edge') {
       ed.emit('edge:dblclick', { edge: hit.edge, at: w });
+    } else if (hit.type === 'group' && hit.header) {
+      const g = hit.group;
+      const rect = { x: g.x, y: g.y, w: g.width, h: Math.min(g.height, ed.graph.layout.groupLabelHeight) };
+      ed.emit('group:edit', { group: g, rect, screenRect: ed.worldRectToScreen(rect) });
+    } else if (hit.type === 'group') {
+      ed.emit('canvas:dblclick', { x: w.x, y: w.y, group: hit.group });
     } else {
       ed.emit('canvas:dblclick', { x: w.x, y: w.y });
     }
@@ -727,6 +803,12 @@ export class Interaction {
       ed.duplicateSelection();
       return true;
     }
+    if (mod && (key === 'g' || key === 'G')) {
+      // Shift 付きならグループ解除、なければ選択をグループ化
+      if (e.shiftKey) ed.ungroup();
+      else ed.groupSelection();
+      return true;
+    }
     if (mod && key === '0') {
       ed.resetZoom();
       return true;
@@ -739,7 +821,7 @@ export class Interaction {
       ed.zoomOut();
       return true;
     }
-    if (!mod && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) && ed.selection.nodes.size) {
+    if (!mod && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key) && (ed.selection.nodes.size || ed.selection.groups.size)) {
       // 移動単位が設定されていれば 1 押下 = 1 単位（Shift で 10 単位）。未設定なら 1px（Shift で 10px）
       const steps = e.shiftKey ? 10 : 1;
       const sx = key === 'ArrowLeft' ? -steps : key === 'ArrowRight' ? steps : 0;

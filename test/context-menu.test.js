@@ -150,7 +150,7 @@ describe('defaultContextMenuItems', () => {
     editor.select({ nodes: ['a'] });
     const { items } = build({ type: 'node', node: editor.graph.getNode('a') });
     expect(ids(items)).toEqual([
-      'duplicate', 'delete', 'delete-edges', 'add-child', 'select-focused', 'select-connected',
+      'duplicate', 'delete', 'delete-edges', 'add-child', 'group', 'select-focused', 'select-connected',
       'note-add', 'copy', 'center',
     ]);
     // 区切り線が先頭・末尾に来ない
@@ -218,7 +218,7 @@ describe('defaultContextMenuItems', () => {
   it('空白では追加・選択・ビュー系が出る', () => {
     editor.clearSelection();
     const { el, ctx, items } = build({ type: 'none', x: 120, y: 80 });
-    expect(ids(items)).toEqual(['add-node', 'paste', 'select-all', 'clear-selection', 'layout', 'fit', 'reset-zoom', 'export']);
+    expect(ids(items)).toEqual(['add-node', 'add-group', 'paste', 'select-all', 'clear-selection', 'layout', 'fit', 'reset-zoom', 'export']);
     expect(items.find((i) => i.id === 'clear-selection').disabled).toBe(true);
     run(items, 'add-node', ctx);
     expect(el.calls[0][0]).toBe('addNodeAt');
