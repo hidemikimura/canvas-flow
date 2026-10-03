@@ -12,6 +12,7 @@
 - `selection:change`（Lit: `selection-change`）・`context:menu` の `selection` に `groups` が増えた。`hitTest()` が `'group'` / `'group-resize'` を返すことがある（ノード・コネクタに当たらなかったとき）
 - `importData()` / `insertJSON()` の結果、`duplicateSelection()` / `paste()` の戻り値に `groups` が増えた
 - デモにグループの例（生成データの一部とパレットの「グループ」テンプレート）を追加
+- **AI エージェント向けの skill `skills/canvas-flow/`** をパッケージに同梱。ライブラリを使う側のコードを書かせるための手引き（データモデル・API 早見表・組み込みレシピ・つまずきやすい点）と、生成した JSON を検証する `scripts/validate-graph.mjs`
 
 ### 修正
 - 型定義: `autoLayout()` の戻り値を実装どおり `string[]` に、`<canvas-flow-editor>` の `node-edit` / `item-edit` の detail を実装どおり `{ node }` / `{ node, item }` に

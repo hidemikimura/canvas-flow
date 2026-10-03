@@ -92,6 +92,20 @@ const node: Node = editor.graph.addNode({ x: 0, y: 0, title: 'Source', output: t
 `test/types/usage.ts` が公開 API を一通り呼び、間違った使い方が `@ts-expect-error` で
 「ちゃんとエラーになること」まで確かめています。
 
+## AI エージェント向けの skill
+
+このライブラリを使うアプリを Claude Code などの AI エージェントに書かせるための skill を同梱しています（`skills/canvas-flow/`。npm パッケージにも含まれます）。
+API・データモデル・つまずきやすい点・React / Vue / Svelte への組み込み方と、生成した JSON を検証するスクリプトが入っています。
+
+```bash
+# プロジェクトに入れる（Claude Code はプロジェクトの .claude/skills/ を読む）
+mkdir -p .claude/skills
+cp -R node_modules/@hidemikimura/canvas-flow/skills/canvas-flow .claude/skills/
+
+# 生成した JSON の検証（読み込み時に黙って捨てられるコネクタを理由つきで表示）
+node .claude/skills/canvas-flow/scripts/validate-graph.mjs graph.json
+```
+
 ## 開発（このリポジトリで作業する場合）
 
 ```bash

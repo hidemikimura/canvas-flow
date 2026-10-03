@@ -59,6 +59,7 @@
     "dist",
     "src",
     "types",
+    "skills",
     "docs/index.html",
     "docs/api.html",
     "docs/demo.html",
