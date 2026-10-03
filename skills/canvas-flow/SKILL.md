@@ -19,7 +19,7 @@ canvas-flow は 10,000 ノード規模でも軽い Canvas 2D のノードエデ�
 ## 確かめ方（最初にやること）
 
 1. バージョンを見る: `node_modules/@hidemikimura/canvas-flow/package.json` の `version`。
-   機能によって追加されたバージョンが違います（例: グループは 0.7.0 より後）。
+   機能によって追加されたバージョンが違います（例: グループと `group-on-drop` は 0.8.0 から）。
 2. 使いたい API が本当にあるか、型定義を grep する。型定義が最も信頼できる一次情報です。
    - コア: `node_modules/@hidemikimura/canvas-flow/types/core.d.ts`（`NodeEditor` / `Graph` / データ型 / イベント名と payload）
    - Web Component: `node_modules/@hidemikimura/canvas-flow/types/lit.d.ts`（`CanvasFlowEditor` と `CanvasFlowEditorEventMap`）

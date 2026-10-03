@@ -98,6 +98,11 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .pal-row.child { padding-left: 14px; }
+  .pal-preview.grouped { border: 1px solid var(--fg-muted); border-radius: 7px; padding: 0 4px 4px; background: color-mix(in srgb, var(--fg-muted) 8%, transparent); }
+  .pal-group-label {
+    align-self: flex-start; margin: 0 0 2px -4px; padding: 1px 6px; font-size: 10.5px; font-weight: 600;
+    color: var(--fg); background: var(--line); border-radius: 6px 0 6px 0;
+  }
   .pal-badge {
     display: inline-block; font-size: 9px; line-height: 1.6; padding: 0 5px; margin-left: 4px;
     border-radius: 999px; color: #fff; background: #d97706;
@@ -199,6 +204,7 @@
   </label>
   <button id="add">ノード追加</button>
   <button id="add-child" title="選択したノードの中に子ノードを追加">子ノード追加</button>
+  <button id="group" title="選択したノードをラベル付きの枠で囲む (Ctrl+G)">グループ化</button>
   <button id="insert">テンプレート挿入</button>
   <label><input type="checkbox" id="dark" /> ダークテーマ</label>
   <label><input type="checkbox" id="readonly" /> 読み取り専用</label>
@@ -223,14 +229,15 @@
 &lt;/script&gt;
 
 &lt;canvas-flow-editor minimap style="width:100%;height:600px"&gt;&lt;/canvas-flow-editor&gt;</code></pre>
-      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.7.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
+      <p style="margin-top:8px">バージョンを固定するときは <code>@hidemikimura/canvas-flow@0.8.0</code> のように指定します。npm 経由なら <code>npm i @hidemikimura/canvas-flow lit</code> のあと <code>import '@hidemikimura/canvas-flow'</code> です。</p>
     </div>
     <div>
       <h3>操作</h3>
       <p>
         ホイール: ズーム / <kbd>Shift</kbd>+ホイール: パン / <kbd>Space</kbd>+ドラッグ: パン /
         ポートをドラッグ: コネクタ作成 / ダブルクリック: タイトル・項目の編集 /
-        <kbd>Ctrl</kbd>+<kbd>D</kbd>: 複製 / <kbd>Delete</kbd>: 削除 /
+        <kbd>Ctrl</kbd>+<kbd>D</kbd>: 複製 / <kbd>Ctrl</kbd>+<kbd>G</kbd>: グループ化 /
+        <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>: グループ解除 / <kbd>Delete</kbd>: 削除 /
         <kbd>Shift</kbd>+<kbd>Delete</kbd>: 選択範囲のコネクタだけ削除 /
         <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>: 強調表示されている要素をまとめて選択 /
         右クリック: 対象に応じたメニュー /
@@ -240,6 +247,7 @@
       <p>ツールバーからは検索・ズーム・Undo/Redo・複製・削除・整列・JSON の読み込み／書き出しが使えます。JSON ファイルをドロップしても読み込めます。</p>
       <p>「強調」を選んでからノードをクリックすると、そのノードを通る道筋（祖先と子孫）だけがはっきり描かれ、ほかは薄くなります（このデモのグラフは 8 ノードごとのまとまりに分かれています）。点線の矢印は <code>goto</code>（コネクタを使わない ID 指定の遷移）で、そのノードを選んだときと強調表示で辿られたときだけ出ます。</p>
       <p>左のパレットからノードをキャンバスへドラッグ&amp;ドロップすると、その位置に追加されます（クリックすると画面中央に追加）。複数ノードのテンプレートは <code>insertJSON(json, { client, anchor: 'origin' })</code>、1 つのノードは <code>addNodeAt(spec, { client, anchor: 'header' })</code> を呼んでいるだけで、パレット自体はこのページ側の実装です。</p>
+      <p>ラベル付きの枠は<strong>グループ</strong>です。枠の空いているところやラベルをドラッグするとメンバーごと動き、ノードを枠の中へ置くとメンバーに、外へ出すと外れます。右下のつまみで大きさを変え、ラベルはダブルクリックで編集できます。選択したノードを <kbd>Ctrl</kbd>+<kbd>G</kbd>（または「グループ化」）で囲めます。</p>
       <p>ノードの外に出ている色付きのバッジは <code>note</code>（メモ）です。ノードの大きさは変えずに、他のノードやバッジと重ならない位置へ自動で置かれます。マウスを乗せると全文が出て、ダブルクリックで編集、右クリックメニューからも追加・削除できます。</p>
     </div>
   </div>
@@ -389,10 +397,37 @@
     if (++logCount > 200) { logEl.lastElementChild?.remove(); logCount--; }
   }
 
+  /**
+   * まとまり（8 個ずつ）の 4 つに 1 つについて、先頭の 3 個をグループで囲む（行をまたぐものは囲まない）。
+   * グループは v0.8.0 から。古いバージョンを読み込んだときは何もしない
+   */
+  const GROUP_STYLES = [
+    null,
+    { fill: 'rgba(59,130,246,0.06)', stroke: '#93c5fd', labelFill: '#dbeafe', labelColor: '#1e40af' },
+    { fill: 'rgba(16,185,129,0.06)', stroke: '#6ee7b7', labelFill: '#d1fae5', labelColor: '#065f46' },
+    { fill: 'rgba(245,158,11,0.07)', stroke: '#fcd34d', labelFill: '#fef3c7', labelColor: '#92400e', dash: [6, 4] },
+  ];
+  function addDemoGroups(n) {
+    if (typeof el.groupNodes !== 'function') return;
+    const cols = Math.ceil(Math.sqrt(n));
+    for (let k = 0, made = 0; k * 8 < n; k += 4) {
+      const first = k * 8;
+      const last = Math.min(n, first + 3) - 1;
+      if (Math.floor(first / cols) !== Math.floor(last / cols)) continue;
+      const ids = [];
+      for (let i = first; i <= last; i++) ids.push(`n${i}`);
+      const style = GROUP_STYLES[made % GROUP_STYLES.length];
+      el.groupNodes(ids, { label: `グループ ${made + 1}`, select: false, ...(style ? { style } : null) });
+      made++;
+    }
+    el.editor.history.clear();   // 読み込み直後の状態を Undo の起点にする
+  }
+
   function regen() {
     const n = Number($('count').value);
     const t0 = performance.now();
     el.load(generate(n));
+    addDemoGroups(n);
     const ms = performance.now() - t0;
     el.editor.viewport.reset();
     el.editor.viewport.panBy(40, 40);
@@ -446,6 +481,17 @@
         ],
         edges: [],
       } },
+    { group: 'テンプレート（複数ノード）', name: 'グループ', hint: 'ラベル付きの枠で囲んだ 2 ノード。枠をドラッグするとまとめて動く（v0.8.0 から）',
+      json: {
+        groups: [{ id: 'grp', label: 'グループ', x: 0, y: 0, width: 560, height: 140 }],
+        nodes: [
+          { id: 'q1', type: 'input', title: '受付', x: 24, y: 48, output: true, group: 'grp',
+            items: [{ id: 'a', label: 'value', value: '1', output: true }] },
+          { id: 'q2', type: 'output', title: '振り分け', x: 312, y: 48, input: true, group: 'grp',
+            items: [{ id: 'b', label: 'value', value: '2', input: true }] },
+        ],
+        edges: [{ source: 'q1', sourcePort: 'item:a:out', target: 'q2', targetPort: 'item:b:in' }],
+      } },
     { group: 'テンプレート（複数ノード）', name: '分岐', hint: '1 ノードから 2 方向へ分かれる形',
       json: {
         nodes: [
@@ -468,6 +514,14 @@
     const wrap = document.createElement('div');
     wrap.className = 'pal-preview';
     const nodes = entry.json ? entry.json.nodes : [entry.spec()];
+    const groupLabel = entry.json?.groups?.[0]?.label;
+    if (groupLabel) {
+      wrap.classList.add('grouped');
+      const tab = document.createElement('div');
+      tab.className = 'pal-group-label';
+      tab.textContent = groupLabel;
+      wrap.appendChild(tab);
+    }
     for (const n of nodes.slice(0, 3)) {
       const card = document.createElement('div');
       card.className = 'pal-node';
@@ -622,7 +676,8 @@
     port: { fill: '#0f141a', stroke: '#7c8794' },
     edge: { stroke: '#6b7684' },
     goto: { stroke: '#7d93ad', labelColor: '#aab6c4', labelBg: 'rgba(15,20,26,0.85)' },
-    minimap: { background: 'rgba(15,20,26,0.9)', border: '#2a333f', node: '#43536a' },
+    group: { fill: 'rgba(148,163,184,0.07)', stroke: '#3a4757', labelFill: '#243040', labelColor: '#e6ebf1' },
+    minimap: { background: 'rgba(15,20,26,0.9)', border: '#2a333f', node: '#43536a', group: '#3a4757' },
   };
   // setTheme は部分マージなので、明るいテーマへ戻すときは同じキーを既定値で上書きし直す
   const LIGHT = {
@@ -632,7 +687,8 @@
     port: { fill: '#ffffff', stroke: '#64748b' },
     edge: { stroke: '#7c8794' },
     goto: { stroke: '#94a3b8', labelColor: '#64748b', labelBg: 'rgba(255,255,255,0.85)' },
-    minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8' },
+    group: { fill: 'rgba(148,163,184,0.08)', stroke: '#94a3b8', labelFill: '#e2e8f0', labelColor: '#334155' },
+    minimap: { background: 'rgba(255,255,255,0.9)', border: '#c9ced6', node: '#94a3b8', group: '#cbd5e1' },
   };
   function applyTheme(dark) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
@@ -673,6 +729,10 @@
     const child = el.addChild(id, { type: 'process', title: `子 ${el.childrenOf(id).length + 1}`, input: true, output: true, items: [{ id: 'p0', label: 'value', value: '0', input: true, output: true }] });
     if (child) el.editor.select({ nodes: [child.id] });
   });
+  $('group').addEventListener('click', () => {
+    if (typeof el.groupSelection !== 'function') return log('グループは読み込み中のバージョンでは未対応です');
+    if (!el.groupSelection({ label: 'グループ' })) log('ノードを選択してください');
+  });
   $('add').addEventListener('click', () => el.addNodeAtCenter({ type: 'process', title: '新しいノード', input: true, output: true, items: [{ id: 'p0', label: 'value', value: '0', input: true, output: true }] }));
   $('insert').addEventListener('click', () => el.insertJSON(TEMPLATE, { anchor: 'origin' }));
   $('readonly').addEventListener('change', (e) => { el.readOnly = e.target.checked; });
@@ -682,6 +742,8 @@
   const brief = (d) => {
     if (!d) return '';
     if (d.node) return d.item ? `${d.node.title} / ${d.item.label}` : d.node.title;
+    if (d.group) return d.group.label;
+    if (Array.isArray(d.nodes) && !d.edges) return d.nodes.map((m) => `${m.id}: ${m.from ?? '-'} → ${m.to ?? '-'}`).join(', ');
     if (d.edge) return `${d.edge.source} → ${d.edge.target}`;
     if (d.nodes && d.edges) return `nodes ${d.nodes.length ?? d.nodes} / edges ${d.edges.length ?? d.edges}`;
     if (d.ids) return `${d.ids.length} 本`;
@@ -694,11 +756,11 @@
     'edge-add', 'edge-remove', 'edges-delete', 'edge-delete-icon', 'connect-rejected',
     'node-add', 'node-remove', 'node-resize-end', 'nodes-move-end',
     'edge-type-change', 'layout', 'insert', 'import', 'export', 'import-error',
-    'focus-select',
+    'focus-select', 'group-click', 'group-membership', 'group-resize-end',
   ]) {
     el.addEventListener(name, (e) => log(name, brief(e.detail)));
   }
-  el.addEventListener('selection-change', (e) => log('selection-change', `ノード ${e.detail.nodes.length} / コネクタ ${e.detail.edges.length}`));
+  el.addEventListener('selection-change', (e) => log('selection-change', `ノード ${e.detail.nodes.length} / コネクタ ${e.detail.edges.length}${e.detail.groups?.length ? ` / グループ ${e.detail.groups.length}` : ''}`));
   el.addEventListener('focus-change', (e) => {
     const d = e.detail;
     log('focus-change', d.mode === 'off' ? 'なし' : `${d.mode}:${d.direction} · ノード ${d.nodes.length} / コネクタ ${d.edges.length}${d.links?.length ? ` / goto ${d.links.length}` : ''}`);

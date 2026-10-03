@@ -119,7 +119,7 @@
 
 ## グループ（Group）
 
-ノードの背面に描く、左上にラベルの付いた枠（React Flow の LabeledGroupNode 相当）。0.7.0 より後のバージョンで追加。
+ノードの背面に描く、左上にラベルの付いた枠（React Flow の LabeledGroupNode 相当）。0.8.0 で追加。
 
 ```json
 { "groups": [ { "id": "g1", "label": "前処理", "x": 0, "y": 0, "width": 560, "height": 160, "style": {}, "data": {} } ],

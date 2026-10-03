@@ -3,7 +3,7 @@
 このファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に沿って書き、
 バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
-## [Unreleased]
+## [0.8.0] - 2026-10-03
 
 ### 追加
 - **グループ（ラベル付きの枠）**: React Flow の LabeledGroupNode に相当する、ノードの背面に描く左上ラベル付きの枠。ノードは `node.group` にグループ ID を持つとメンバーになり、枠をドラッグするとメンバーごと動く。ノードをドラッグで置くと中心が入っているグループ（重なっていれば一番小さいもの）に入り、外に置くと外れる。貼り付け・複製・`insertJSON`・`addNodeAt` で置いたときも同じ（`groupOnDrop` / 属性 `group-on-drop="false"` で無効）。右下グリップで幅・高さのリサイズ、ラベル帯のダブルクリックでラベル編集、Ctrl/Cmd + G でグループ化、Ctrl/Cmd + Shift + G で解除。選択・範囲選択・削除（メンバーごと）・複製・コピー＆貼り付け・Undo / Redo・JSON（`groups` 配列）・ミニマップ・右クリックメニューに対応。API: `addGroup` / `updateGroup` / `removeGroup(id, { withMembers })` / `groupNodes(ids, options)` / `groupSelection()` / `ungroup(ids?)` / `resizeGroup` / `fitGroup` / `setNodeGroup` / `groupOf` / `groupMembers` / `groupAt` / `updateGroupMembership`、Graph に `groups` / `moveGroups` / `groupsAt` / `groupForRect` / `groupRectFor` など。イベント `group:add` / `group:remove` / `group:change` / `groups:move` / `group:click` / `group:edit` / `group:resize:end` / `group:membership`（Lit はハイフン区切り）。テーマ `theme.group`、グループ単位は `group.style`
@@ -91,7 +91,8 @@
 - クリック系イベント（`node:click` / `item:click` / `edge:click` / `canvas:click`）
 - API 仕様書 `docs/api.html`
 
-[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/hidemikimura/canvas-flow/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hidemikimura/canvas-flow/compare/v0.4.0...v0.5.0
